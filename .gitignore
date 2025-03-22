@@ -1,0 +1,29 @@
+# Node.js
+node_modules/
+dist/
+*.log
+
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Tauri
+src-tauri/target/
+src-tauri/Cargo.lock
+src-tauri/.tauri-build
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Miscellaneous
+*.tmp
+*.bak
+*.old
