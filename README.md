@@ -1,7 +1,7 @@
 <!-- 项目LOGO与标题 -->
 <div align="center">
   <a href="https://github.com/wflixu/SFTerm">
-    <img src="docs/logo.png" alt="SFTerm Logo" width="120" height="120">
+    <img src="app-icon.png" alt="SFTerm Logo" width="120" height="120">
   </a>
   <h1 align="center">SFTerm</h1>
   <p align="center">
