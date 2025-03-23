@@ -17,7 +17,7 @@ const tabs = ref([
     <TabList>
       <Tab v-for="tab in tabs" :key="tab.label" :value="tab.label">
         <router-link v-if="tab.route" v-slot="{ href, navigate }" :to="tab.route" custom>
-          <a v-ripple :href="href" @click="navigate" class="tab-item">
+          <a  :href="href" @click="navigate" class="tab-item">
             <i :class="tab.icon" />
             <span>{{ tab.label }}</span>
             <i class="pi pi-times" v-if="tab.closable"></i>

@@ -10,6 +10,8 @@ import SplitterPanel from 'primevue/splitterpanel';
 import Drawer from 'primevue/drawer';
 import Menu from 'primevue/menu';
 import ContextMenu from 'primevue/contextmenu';
+import { Form, FormField } from '@primevue/forms';
+
 
 // ...其他需要的 PrimeVue 组件...
 
@@ -26,5 +28,7 @@ export default {
         app.component('Drawer', Drawer);
         app.component('Menu', Menu);
         app.component('ContextMenu', ContextMenu);
+        app.component('Form', Form);
+        app.component('FormField', FormField);
     }
 };

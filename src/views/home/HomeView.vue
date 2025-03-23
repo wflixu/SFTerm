@@ -7,7 +7,21 @@ import HistoryView from './HistoryView.vue';
 
 
 const active = ref('hosts');
-
+const navItems = [{
+  id: 'hosts',
+  name: 'Hosts',
+  icon: 'pi-server'
+},
+{
+  id: 'keys',
+  name: 'keys',
+  icon: 'pi-key'
+},
+{
+  id: 'history',
+  name: 'History',
+  icon: 'pi-history'
+},]
 </script>
 
 <template>
@@ -15,22 +29,22 @@ const active = ref('hosts');
     <Splitter style="height: calc(100vh - 36px)">
       <SplitterPanel :size="25" :minSize="10">
         <div class="top">
-          <BaseNav v-model="active" />
+          <BaseNav v-model="active" :items="navItems" />
         </div>
         <div class="bottom">
 
         </div>
       </SplitterPanel>
-      <SplitterPanel  :size="75">
-         <template v-if="active === 'hosts'">
+      <SplitterPanel :size="75">
+        <template v-if="active === 'hosts'">
           <HostView />
-         </template>
-          <template v-else-if="active === 'keys'">
-            <KeysView />  
-          </template>
-          <template v-else-if="active === 'history'">
-            <HistoryView />
-          </template>
+        </template>
+        <template v-else-if="active === 'keys'">
+          <KeysView />
+        </template>
+        <template v-else-if="active === 'history'">
+          <HistoryView />
+        </template>
       </SplitterPanel>
     </Splitter>
   </main>

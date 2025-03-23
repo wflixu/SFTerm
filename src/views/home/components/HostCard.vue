@@ -5,7 +5,7 @@
         </div>
         <div class="info">
             <div class="name">{{ host.name }}</div>
-            <div class="description">{{ host.description }}</div>
+            <div class="description">{{ host.desc }}</div>
         </div>
         <div class="actions">
             <i class="pi pi-trash" @click.stop="onDelete"></i>
@@ -16,14 +16,11 @@
 </template>
 
 <script setup lang="ts">
+import type { IHost } from '@/shared/interface';
 import { ref } from 'vue';
 
 const props = defineProps<{
-    host: {
-        name: string;
-        description: string;
-        [key: string]: any;
-    }
+    host: IHost
 }>();
 
 const emit = defineEmits<{

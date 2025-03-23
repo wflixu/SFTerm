@@ -18,21 +18,7 @@ interface IProps {
 
 const props = withDefaults(defineProps<IProps>(), {
     items: () => [
-        {
-            id: 'hosts',
-            name: 'Hosts',
-            icon: 'pi-server'
-        },
-        {
-            id: 'keys',
-            name: 'keys',
-            icon: 'pi-key'
-        },
-        {
-            id: 'history',
-            name: 'History',
-            icon: 'pi-history'
-        },
+        
     ],
     modelValue: ''
 });
