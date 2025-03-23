@@ -1,29 +1,62 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router'
-import HelloWorld from './components/HelloWorld.vue'
+import { ref } from 'vue';
+
+
+
+const tabs = ref([
+  { route: '/', label: 'Home', icon: 'pi pi-home',  },
+  { route: '/ftp', label: 'FTP', icon: 'pi pi-chart-line' },
+  { route: '/connect', label: 'Connect', icon: 'pi pi-list', closable: true   },
+]);
+
 </script>
 
 <template>
-  <header>
-    <img alt="Vue logo" class="logo" src="@/assets/logo.svg" width="125" height="125" />
-
-    <div class="wrapper">
-      <HelloWorld msg="You did it!" />
-
-      <nav>
-        <RouterLink to="/">Home</RouterLink>
-        <RouterLink to="/about">About</RouterLink>
-      </nav>
-    </div>
-  </header>
-
+  <Tabs value="/" class="tabs">
+    <TabList>
+      <Tab v-for="tab in tabs" :key="tab.label" :value="tab.label">
+        <router-link v-if="tab.route" v-slot="{ href, navigate }" :to="tab.route" custom>
+          <a v-ripple :href="href" @click="navigate" class="tab-item">
+            <i :class="tab.icon" />
+            <span>{{ tab.label }}</span>
+            <i class="pi pi-times" v-if="tab.closable"></i>
+          </a>
+        </router-link>
+      </Tab>
+    </TabList>
+  </Tabs>
   <RouterView />
 </template>
 
 <style scoped>
+
+:deep(.p-tablist-tab-list) {
+  padding-left: 4rem;
+  padding-right: 1rem;
+}
+
+:deep(.p-tab) {
+  --p-tabs-tab-padding: 0;
+}
+
 header {
   line-height: 1.5;
   max-height: 100vh;
+}
+
+.tab-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  color: var(--color-text);
+
+  span {
+    font-size: 16px;
+  }
 }
 
 .logo {

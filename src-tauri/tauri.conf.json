@@ -12,11 +12,13 @@
   "app": {
     "windows": [
       {
-        "title": "sfterm",
+        "title": "",
         "width": 800,
-        "height": 600,
+        "height": 900,
+        "skipTaskbar": true,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "titleBarStyle": "Overlay"
       }
     ],
     "security": {
