@@ -9,11 +9,16 @@ pub fn run() {
         .manage(Arc::new(Manager::new()))
         .setup(|app| {
             if cfg!(debug_assertions) {
-                app.handle().plugin(
+                // 日志插件只是开发便利，初始化失败（例如受限环境没有写权限）
+                // 不应该阻止应用启动。
+                let result = app.handle().plugin(
                     tauri_plugin_log::Builder::default()
                         .level(log::LevelFilter::Info)
                         .build(),
-                )?;
+                );
+                if let Err(error) = result {
+                    eprintln!("⚠️ 日志插件初始化失败（不影响启动）：{error}");
+                }
             }
             Ok(())
         })
