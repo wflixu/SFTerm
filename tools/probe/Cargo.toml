@@ -1,0 +1,12 @@
+[package]
+name = "sft-probe"
+version = "0.1.0"
+edition = "2021"
+description = "SFTerm 连接探针：打印 SSH 协商算法、认证方式、SFTP 目录，用于排查老服务器兼容性"
+
+[[bin]]
+name = "sft-probe"
+path = "src/main.rs"
+
+[dependencies]
+ssh2 = "0.9"

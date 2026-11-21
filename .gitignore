@@ -27,3 +27,6 @@ Thumbs.db
 *.tmp
 *.bak
 *.old
+
+# Rust workspace-local cargo home
+.cargo-home/
