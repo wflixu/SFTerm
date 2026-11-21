@@ -1,191 +1,250 @@
-<template>
-    <div class="hosts">
-        <div class="body">
-            <div class="searchbox">
-                <InputText v-model="searchQuery" placeholder="搜索主机..." />
-            </div>
-
-            <div class="actions">
-                <Button icon="pi pi-plus" label="添加" severity="success" @click="addHost" />
-            </div>
-            <div class="host-cards">
-                <HostCard v-for="host in systemStore.hosts" :key="host.id" :host="host" @select="onHostClick"
-                    @delete="onDelete" />
-            </div>
-        </div>
-
-        <div class="host-edit" v-if="addVisible && curHost">
-            <div class="actions">
-                <div class="left"></div>
-                <div class="right">
-                    <i class="pi pi-arrow-right" @click="addVisible = false"></i>
-                </div>
-            </div>
-            <HostEdit :host="curHost" @submit="saveHost" />
-        </div>
-    </div>
-</template>
-
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { computed, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import HostCard from './components/HostCard.vue';
 import HostEdit from './components/HostEdit.vue';
-import type { IHost } from '@/shared/interface';
 import { useSystemStore } from '@/stores/system';
+import { useTabsStore } from '@/stores/tabs';
+import type { IHost } from '@/shared/interface';
 
-const systemStore = useSystemStore();
-const addVisible = ref(false);
-const curHost = ref<IHost | null>(null);
+const system = useSystemStore();
+const tabs = useTabsStore();
+const router = useRouter();
 
-// 新主机数据
-const newHost = ref({
-    address: '',
-    name: '',
-    parentGroup: '',
-    tags: '',
-    description: 'ssh'
+const search = ref('');
+const drawerOpen = ref(false);
+const editing = ref<IHost | null>(null);
+
+const filtered = computed(() => {
+  const q = search.value.trim().toLowerCase();
+  if (!q) return system.hosts;
+  return system.hosts.filter((host) =>
+    [host.name, host.address, host.desc ?? ''].some((value) => value.toLowerCase().includes(q)),
+  );
 });
 
-const addHost = () => {
-    addVisible.value = true;
-    curHost.value = {
-        address: '',
-        name: '',
-        id: '',
-        desc: 'ssh'
-    } as IHost;
+const openCreate = () => {
+  editing.value = null;
+  drawerOpen.value = true;
 };
 
-// 保存主机
-const saveHost = (host: IHost) => {
-
-    systemStore.addHost(host);
-    // 关闭表单
-    addVisible.value = false;
+const openEdit = (host: IHost) => {
+  editing.value = host;
+  drawerOpen.value = true;
 };
 
-// 模拟数据
-const hosts = ref<IHost[]>([
-    // {
-    //     id: '1',
-    //     name: 'light',
-    //     address: '192.168.1.1',
-    //     description: 'ssh, ubuntu',
-    //     port: 22,
-    //     password: 'password123',
-    //     keyPath: '/path/to/key'
-    // },
-    // {
-    //     id: '2',
-    //     name: 'vps-tencent',
-    //     address: '192.168.1.2',
-    //     description: 'ssh, ubuntu',
-    //     port: 22,
-    //     password: 'password456',
-    //     keyPath: '/path/to/key'
-    // },
-    // {
-    //     id: '3',
-    //     name: 'vpn-server-admin',
-    //     address: '192.168.1.3',
-    //     description: 'ssh, vpn-server-admin',
-    //     port: 22,
-    //     password: 'password789',
-    //     keyPath: '/path/to/key'
-    // },
-    // {
-    //     id: '4',
-    //     name: 'vps-tencent-root',
-    //     address: '192.168.1.4',
-    //     description: 'ssh, root',
-    //     port: 22,
-    //     password: 'password000',
-    //     keyPath: '/path/to/key'
-    // },
-    // {
-    //     id: '5',
-    //     name: 'vps-us',
-    //     address: '192.168.1.5',
-    //     description: 'ssh, root',
-    //     port: 22,
-    //     password: 'password111',
-    //     keyPath: '/path/to/key'
-    // }
-]);
+const save = (host: IHost) => {
+  if (system.getHost(host.id)) system.updateHost(host);
+  else system.addHost(host);
+  drawerOpen.value = false;
+};
 
-const searchQuery = ref('');
-const onDelete = (host: any) => {
-    hosts.value = hosts.value.filter(h => h.id !== host.id);
-}
-// 过滤主机列表
-const filteredHosts = computed(() => {
-    if (!searchQuery.value) return hosts.value;
-    const query = searchQuery.value.toLowerCase();
-    console.warn(systemStore.hosts)
-    return systemStore.hosts.value.filter(host =>
-        host.name.toLowerCase().includes(query) ||
-        host.desc.toLowerCase().includes(query)
-    );
-});
+const remove = (host: IHost) => {
+  if (confirm(`删除主机「${host.name || host.address}」？`)) system.removeHost(host);
+};
 
-// 处理主机点击事件
-const onHostClick = (host: any) => {
-    console.log('Host clicked:', host);
-    addVisible.value = true;
-    curHost.value = host;
-    // 这里可以添加导航到连接页面或打开连接对话框的逻辑
+const connect = (host: IHost) => {
+  tabs.openSession(host);
+  router.push(`/session/${host.id}`);
 };
 </script>
 
+<template>
+  <div class="hosts">
+    <header class="toolbar">
+      <div class="title">
+        <h2>Hosts</h2>
+        <span class="count">{{ system.hosts.length }}</span>
+      </div>
+      <div class="actions">
+        <InputText v-model="search" placeholder="搜索主机" class="search" />
+        <Button label="新建主机" icon="pi pi-plus" severity="success" size="small" @click="openCreate" />
+      </div>
+    </header>
+
+    <div v-if="filtered.length" class="grid">
+      <HostCard
+        v-for="host in filtered"
+        :key="host.id"
+        :host="host"
+        @connect="connect"
+        @edit="openEdit"
+        @delete="remove"
+      />
+    </div>
+
+    <div v-else class="empty">
+      <div class="empty-icon"><i class="pi pi-server" /></div>
+      <h3>{{ system.hosts.length ? '没有匹配的主机' : '还没有主机' }}</h3>
+      <p>{{ system.hosts.length ? '换个关键词试试。' : '添加一台服务器，双击卡片即可连接。' }}</p>
+      <Button
+        v-if="!system.hosts.length"
+        label="添加主机"
+        icon="pi pi-plus"
+        @click="openCreate"
+      />
+    </div>
+
+    <transition name="drawer">
+      <aside v-if="drawerOpen" class="drawer">
+        <header class="drawer-head">
+          <h3>{{ editing ? '编辑主机' : '新建主机' }}</h3>
+          <button class="icon-btn" @click="drawerOpen = false"><i class="pi pi-times" /></button>
+        </header>
+        <HostEdit
+          :key="editing?.id ?? 'new'"
+          :host="editing"
+          @save="save"
+          @cancel="drawerOpen = false"
+        />
+      </aside>
+    </transition>
+  </div>
+</template>
+
 <style scoped>
 .hosts {
-    height: 100%;
-    background-color: #EEF1F2;
-    display: flex;
-
-    .body {
-        flex: 1;
-    }
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
 }
 
-.searchbox {
-    background-color: white;
-    border-bottom: 1px solid #dee2e6;
-    height: 48px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 24px;
+  border-bottom: 1px solid #e3e6ea;
+  background: #fff;
 }
 
-.searchbox :deep(.p-inputtext) {
-    width: 100%;
-    max-width: 400px;
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.title h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.count {
+  font-size: 12px;
+  color: #9ca3af;
 }
 
 .actions {
-    padding: 16px 24px;
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.host-cards {
-    padding: 16px 24px;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 16px;
-    overflow-y: auto;
-    flex: 1;
+.search {
+  width: 220px;
 }
 
-.host-edit {
-    width: 360px;
-    border-left: 1px solid #dee2e6;
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  padding: 20px 24px 32px;
+  overflow-y: auto;
+}
 
-    .actions {
-        height: 48px;
-        background-color: white;
-        border-bottom: 1px solid #dee2e6;
-    }
+.empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #6b7280;
+}
+
+.empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 6px;
+  border-radius: 14px;
+  background: #eceff3;
+  color: #9ca3af;
+  font-size: 22px;
+}
+
+.empty h3 {
+  margin: 0;
+  font-size: 15px;
+  color: #111827;
+}
+
+.empty p {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-left: 1px solid #e3e6ea;
+  box-shadow: -12px 0 24px rgba(15, 23, 42, 0.08);
+  z-index: 10;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid #eef0f3;
+}
+
+.drawer-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  background: #f0f2f5;
+  color: #111827;
+}
+
+.drawer-enter-active,
+.drawer-leave-active {
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+.drawer-enter-from,
+.drawer-leave-to {
+  transform: translateX(16px);
+  opacity: 0;
 }
 </style>

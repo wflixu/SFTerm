@@ -10,13 +10,13 @@ const router = createRouter({
       component: HomeView,
     },
     {
-      path: '/ftp',
-      name: 'ftp',
-      component: () => import('../views/ftp/FTP.vue'),
+      path: '/sftp',
+      name: 'sftp',
+      component: () => import('../views/sftp/SFTPView.vue'),
     },
     {
-      path: '/connect',
-      name: 'connect',
+      path: '/session/:hostId',
+      name: 'session',
       component: () => import('../views/connections/Connection.vue'),
     },
   ],
