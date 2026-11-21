@@ -18,7 +18,7 @@ const host = computed(() => system.getHost(route.params.hostId as string) ?? nul
         <Button label="返回 Home" @click="router.push('/')" />
     </div>
 
-    <DualPane v-else :host="host" auto-connect />
+    <DualPane v-else :key="host.id" :host="host" :auto-connect="true" />
 </template>
 
 <style scoped>

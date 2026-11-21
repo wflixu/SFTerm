@@ -78,6 +78,7 @@ const connect = async () => {
 
     connecting.value = true;
     remoteError.value = '';
+    console.debug('[dual] connecting', host.address, host.username);
     try {
         const auth = host.keyPath
             ? { kind: 'key', path: host.keyPath }
@@ -94,6 +95,7 @@ const connect = async () => {
         await loadRemote('/home');
     } catch (e) {
         remoteError.value = String(e);
+        console.debug('[dual] connect failed', e);
     } finally {
         connecting.value = false;
     }

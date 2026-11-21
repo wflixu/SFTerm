@@ -5,7 +5,6 @@ import type { IHost } from '@/shared/interface'
 export const useSystemStore = defineStore('system', () => {
   const hostJsonStr = window.localStorage.getItem('hosts')
   const json = hostJsonStr ? JSON.parse(hostJsonStr) : [];
-  console.log('json', json)
   const hosts = ref<IHost[]>(json)
   const currentHost = ref<IHost | null>(null)
   const storeHost = () => {

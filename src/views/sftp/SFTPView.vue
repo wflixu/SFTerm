@@ -14,6 +14,7 @@ const pickerOpen = ref(false);
 const host = computed(() => (sftp.hostId ? system.getHost(sftp.hostId) ?? null : null));
 
 const choose = (next: IHost) => {
+    console.debug('[sftp] choose host', next.id, next.name);
     sftp.bind(next.id);
 };
 
@@ -24,8 +25,9 @@ const requestHost = () => {
 
 <template>
     <DualPane
+        :key="host?.id ?? 'unbound'"
         :host="host"
-        auto-connect
+        :auto-connect="true"
         can-pick-host
         @request-host="requestHost"
     />
