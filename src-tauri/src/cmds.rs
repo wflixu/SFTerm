@@ -27,6 +27,18 @@ pub async fn sftp_list_dir(
         .map_err(|e| format!("列目录任务失败：{e}"))?
 }
 
+/// 远端会话的初始目录（登录用户主目录）。
+#[tauri::command]
+pub async fn sftp_home(
+    state: State<'_, Arc<Manager>>,
+    session_id: String,
+) -> Result<String, String> {
+    let manager = Arc::clone(&state);
+    tauri::async_runtime::spawn_blocking(move || manager.remote_home(&session_id))
+        .await
+        .map_err(|e| format!("获取主目录任务失败：{e}"))?
+}
+
 /// 列出本地目录。
 #[tauri::command]
 pub async fn fs_list_local(path: String) -> Result<Vec<RemoteEntry>, String> {

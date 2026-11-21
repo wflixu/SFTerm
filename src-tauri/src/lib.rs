@@ -25,6 +25,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             cmds::ssh_connect,
             cmds::sftp_list_dir,
+            cmds::sftp_home,
             cmds::fs_list_local,
             cmds::fs_home,
             cmds::ssh_disconnect,

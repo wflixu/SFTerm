@@ -25,6 +25,8 @@ const { invoke } = vi.hoisted(() => ({
             case 'fs_list_local':
             case 'sftp_list_dir':
                 return [];
+            case 'sftp_home':
+                return '/home/testuser';
             case 'ssh_connect':
                 return {
                     session_id: 's-1',

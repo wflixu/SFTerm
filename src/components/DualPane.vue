@@ -96,7 +96,13 @@ const connect = async () => {
                 auth,
             },
         });
-        await loadRemote('/home');
+        let home = '/home';
+        try {
+            home = await invoke<string>('sftp_home', { sessionId: info.value.session_id });
+        } catch {
+            // 拿不到主目录就退回 /home
+        }
+        await loadRemote(home || '/home');
     } catch (e) {
         remoteError.value = String(e);
         console.debug('[dual] connect failed', e);

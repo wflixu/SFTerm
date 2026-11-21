@@ -75,6 +75,9 @@ enum Request {
         path: String,
         reply: Sender<Result<Vec<RemoteEntry>, String>>,
     },
+    RealPath {
+        reply: Sender<Result<String, String>>,
+    },
 }
 
 struct SessionHandle {
@@ -124,6 +127,26 @@ impl Manager {
             reply: reply_tx,
         })
         .map_err(|_| "会话已关闭".to_string())?;
+        reply_rx.recv().map_err(|_| "会话已关闭".to_string())?
+    }
+
+    /// 远端会话的初始目录（通常是登录用户的主目录）。
+    pub fn remote_home(&self, session_id: &str) -> Result<String, String> {
+        let tx = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| "会话表被污染".to_string())?;
+            sessions
+                .get(session_id)
+                .ok_or_else(|| format!("会话不存在：{session_id}"))?
+                .tx
+                .clone()
+        };
+
+        let (reply_tx, reply_rx) = mpsc::channel();
+        tx.send(Request::RealPath { reply: reply_tx })
+            .map_err(|_| "会话已关闭".to_string())?;
         reply_rx.recv().map_err(|_| "会话已关闭".to_string())?
     }
 
@@ -216,6 +239,9 @@ fn worker(session: Session, rx: mpsc::Receiver<Request>) {
                     Request::ListDir { reply, .. } => {
                         let _ = reply.send(Err(message.clone()));
                     }
+                    Request::RealPath { reply } => {
+                        let _ = reply.send(Err(message.clone()));
+                    }
                 }
             }
             return;
@@ -226,6 +252,13 @@ fn worker(session: Session, rx: mpsc::Receiver<Request>) {
         match request {
             Request::ListDir { path, reply } => {
                 let _ = reply.send(list_dir(&sftp, &path));
+            }
+            Request::RealPath { reply } => {
+                let result = sftp
+                    .realpath(Path::new("."))
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .map_err(|e| format!("获取远端主目录失败：{e}"));
+                let _ = reply.send(result);
             }
         }
     }
