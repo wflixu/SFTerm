@@ -97,7 +97,7 @@ describe('SFTPView', () => {
         await hostRow!.trigger('click');
         await flushPromises();
 
-        expect(sftp.hostId).toBe('h1');
+        expect(sftp.bound?.id).toBe('h1');
         expect(wrapper.text()).toContain('web-1');
         expect(invoke).toHaveBeenCalledWith('ssh_connect', expect.anything());
     });

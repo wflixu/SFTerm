@@ -71,6 +71,10 @@ const loadRemote = async (path: string) => {
 const connect = async () => {
     const host = props.host;
     if (!host) return;
+    if (!host.address) {
+        remoteError.value = '主机信息不完整：缺少地址，回 Home 编辑一下。';
+        return;
+    }
     if (!host.keyPath && !host.password) {
         remoteError.value = '这台主机还没有配置认证方式，回 Home 点铅笔补一下。';
         return;
