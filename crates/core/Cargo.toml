@@ -1,0 +1,13 @@
+[package]
+name = "sfterm-core"
+version = "0.1.0"
+edition = "2021"
+description = "SFTerm 的 SSH/SFTP 引擎：与 Tauri 解耦，可独立测试"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+ssh2 = "0.9"
+
+[[bin]]
+name = "engine-check"
+path = "src/bin/check.rs"

@@ -1,38 +1,40 @@
-use ssh2::Session;
-use std::{net::TcpStream, path::PathBuf};
+use sfterm_core::{ConnectInfo, ConnectParams, Manager, RemoteEntry};
+use std::sync::Arc;
+use tauri::State;
 
+/// 建立 SSH 连接并打开 SFTP 会话。
 #[tauri::command]
-pub fn ssh_connect() -> Result<(), String> {
-    let ip = "";
-    let username = "ubuntu";
-    let private_key_path = PathBuf::from("");
-    println!("I was invoked from JavaScript!");
-   
-    // 1. 建立 TCP 连接
-    let tcp = TcpStream::connect(format!("{}:22", ip)).expect("❌ TCP 连接失败");
+pub async fn ssh_connect(
+    state: State<'_, Arc<Manager>>,
+    params: ConnectParams,
+) -> Result<ConnectInfo, String> {
+    let manager = Arc::clone(&state);
+    tauri::async_runtime::spawn_blocking(move || manager.connect(params))
+        .await
+        .map_err(|e| format!("连接任务失败：{e}"))?
+}
 
-    // 2. 初始化 SSH 会话
-    let mut sess = Session::new().expect("❌ SSH 会话初始化失败");
-    sess.set_tcp_stream(tcp);
+/// 列出远端目录。
+#[tauri::command]
+pub async fn sftp_list_dir(
+    state: State<'_, Arc<Manager>>,
+    session_id: String,
+    path: String,
+) -> Result<Vec<RemoteEntry>, String> {
+    let manager = Arc::clone(&state);
+    tauri::async_runtime::spawn_blocking(move || manager.list_dir(&session_id, &path))
+        .await
+        .map_err(|e| format!("列目录任务失败：{e}"))?
+}
 
-    // 3. 握手协议（网页1中的 handshake 逻辑）
-    sess.handshake().map_err(|e| e.to_string()).expect("❌ 握手失败");
+/// 断开并释放会话。
+#[tauri::command]
+pub fn ssh_disconnect(state: State<'_, Arc<Manager>>, session_id: String) -> bool {
+    state.disconnect(&session_id)
+}
 
-    // 4. 密钥认证（网页2中的公钥文件认证逻辑）
-    //  
-    sess.userauth_pubkey_file(
-        username,
-        None, // 不使用公钥文件路径
-        &private_key_path,
-        None, // 私钥密码（如有需要可传入）
-    )
-    .map_err(|e| e.to_string())?;
-
-    // 5. 验证认证状态
-    if sess.authenticated() {
-        println!("✅ SSH 认证成功");
-        Ok(())
-    } else {
-        Err("❌ 密钥认证失败".to_string())
-    }
+/// 当前活跃会话（调试用）。
+#[tauri::command]
+pub fn ssh_sessions(state: State<'_, Arc<Manager>>) -> Vec<String> {
+    state.session_ids()
 }

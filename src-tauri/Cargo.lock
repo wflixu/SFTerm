@@ -97,6 +97,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "sfterm-core",
  "ssh2",
  "tauri",
  "tauri-build",
@@ -3111,6 +3112,14 @@ checksum = "d98238b800e0d1576d8b6e3de32827c2d74bee68bb97748dcf5071fb53965432"
 dependencies = [
  "nodrop",
  "stable_deref_trait",
+]
+
+[[package]]
+name = "sfterm-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "ssh2",
 ]
 
 [[package]]
