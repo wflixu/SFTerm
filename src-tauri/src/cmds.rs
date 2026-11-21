@@ -27,6 +27,20 @@ pub async fn sftp_list_dir(
         .map_err(|e| format!("列目录任务失败：{e}"))?
 }
 
+/// 列出本地目录。
+#[tauri::command]
+pub async fn fs_list_local(path: String) -> Result<Vec<RemoteEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || sfterm_core::list_local(&path))
+        .await
+        .map_err(|e| format!("列目录任务失败：{e}"))?
+}
+
+/// 当前用户主目录。
+#[tauri::command]
+pub fn fs_home() -> String {
+    sfterm_core::home_dir()
+}
+
 /// 断开并释放会话。
 #[tauri::command]
 pub fn ssh_disconnect(state: State<'_, Arc<Manager>>, session_id: String) -> bool {

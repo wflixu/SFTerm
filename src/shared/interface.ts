@@ -11,6 +11,16 @@ export interface IHost {
     group?: string;
 }
 
+export interface FileEntry {
+    name: string;
+    path: string;
+    is_dir: boolean;
+    is_symlink: boolean;
+    size: number;
+    perm?: number | null;
+    mtime?: number | null;
+}
+
 export interface IKeyEntry {
     id: string;
     label: string;

@@ -90,7 +90,10 @@ fn run() -> Result<(), String> {
 
     println!("✓ 已连接（{:?}）", started.elapsed());
     println!("  session   {}", info.session_id);
-    println!("  服务器    {}", info.banner.unwrap_or_else(|| "未知".into()));
+    println!(
+        "  服务器    {}",
+        info.banner.unwrap_or_else(|| "未知".into())
+    );
     println!("  主机密钥  {}", info.host_key_type);
     println!("  指纹      {}", info.fingerprint_sha256);
     println!("  KEX       {:?}", info.kex);

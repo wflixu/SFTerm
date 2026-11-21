@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { invoke } from '@tauri-apps/api/core';
+import FilePane from '@/components/FilePane.vue';
 import { useSystemStore } from '@/stores/system';
+import type { FileEntry } from '@/shared/interface';
 
 interface ConnectInfo {
     session_id: string;
@@ -13,36 +15,65 @@ interface ConnectInfo {
     cipher: string | null;
 }
 
-interface RemoteEntry {
-    name: string;
-    path: string;
-    is_dir: boolean;
-    is_symlink: boolean;
-    size: number;
-    mtime: number | null;
-}
-
 const route = useRoute();
 const router = useRouter();
 const system = useSystemStore();
-
 const host = computed(() => system.getHost(route.params.hostId as string));
 
+const localPath = ref('');
+const localEntries = ref<FileEntry[]>([]);
+const localLoading = ref(false);
+const localError = ref('');
+
 const info = ref<ConnectInfo | null>(null);
-const entries = ref<RemoteEntry[]>([]);
-const error = ref('');
-const busy = ref(false);
-const path = ref('/home');
+const remotePath = ref('/home');
+const remoteEntries = ref<FileEntry[]>([]);
+const remoteLoading = ref(false);
+const remoteError = ref('');
+const connecting = ref(false);
+
+const split = ref(50);
+const dragging = ref(false);
+
+const loadLocal = async (path: string) => {
+    localLoading.value = true;
+    localError.value = '';
+    try {
+        localEntries.value = await invoke<FileEntry[]>('fs_list_local', { path });
+        localPath.value = path;
+    } catch (e) {
+        localError.value = String(e);
+    } finally {
+        localLoading.value = false;
+    }
+};
+
+const loadRemote = async (path: string) => {
+    if (!info.value) return;
+    remoteLoading.value = true;
+    remoteError.value = '';
+    try {
+        remoteEntries.value = await invoke<FileEntry[]>('sftp_list_dir', {
+            sessionId: info.value.session_id,
+            path,
+        });
+        remotePath.value = path;
+    } catch (e) {
+        remoteError.value = String(e);
+    } finally {
+        remoteLoading.value = false;
+    }
+};
 
 const connect = async () => {
     if (!host.value) return;
     if (!host.value.keyPath && !host.value.password) {
-        error.value = '这台主机还没有配置认证方式，点右上角编辑填一下。';
+        remoteError.value = '这台主机还没有配置认证方式，回 Home 点铅笔补一下。';
         return;
     }
 
-    error.value = '';
-    busy.value = true;
+    connecting.value = true;
+    remoteError.value = '';
     try {
         const auth = host.value.keyPath
             ? { kind: 'key', path: host.value.keyPath }
@@ -56,27 +87,11 @@ const connect = async () => {
                 auth,
             },
         });
-        await list();
+        await loadRemote('/home');
     } catch (e) {
-        error.value = String(e);
+        remoteError.value = String(e);
     } finally {
-        busy.value = false;
-    }
-};
-
-const list = async () => {
-    if (!info.value) return;
-    error.value = '';
-    busy.value = true;
-    try {
-        entries.value = await invoke<RemoteEntry[]>('sftp_list_dir', {
-            sessionId: info.value.session_id,
-            path: path.value.trim() || '/',
-        });
-    } catch (e) {
-        error.value = String(e);
-    } finally {
-        busy.value = false;
+        connecting.value = false;
     }
 };
 
@@ -84,116 +99,118 @@ const disconnect = async () => {
     if (!info.value) return;
     const id = info.value.session_id;
     info.value = null;
-    entries.value = [];
+    remoteEntries.value = [];
     await invoke('ssh_disconnect', { sessionId: id });
 };
 
-const enter = (entry: RemoteEntry) => {
-    if (!entry.is_dir) return;
-    path.value = entry.path;
-    list();
+const openLocal = (entry: FileEntry) => {
+    if (entry.is_dir) loadLocal(entry.path);
 };
 
-const goUp = () => {
-    const trimmed = path.value.replace(/\/+$/, '');
-    const index = trimmed.lastIndexOf('/');
-    path.value = index <= 0 ? '/' : trimmed.slice(0, index);
-    list();
+const openRemote = (entry: FileEntry) => {
+    if (entry.is_dir) loadRemote(entry.path);
 };
 
-onBeforeUnmount(() => {
-    if (info.value) invoke('ssh_disconnect', { sessionId: info.value.session_id });
+const startDrag = () => {
+    dragging.value = true;
+};
+
+const onMove = (event: MouseEvent) => {
+    if (!dragging.value) return;
+    const el = document.querySelector('.panes') as HTMLElement | null;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const pct = ((event.clientX - rect.left) / rect.width) * 100;
+    split.value = Math.min(72, Math.max(28, pct));
+};
+
+const endDrag = () => {
+    dragging.value = false;
+};
+
+onMounted(async () => {
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', endDrag);
+
+    const home = await invoke<string>('fs_home');
+    await loadLocal(home);
+    await connect();
 });
 
-const humanSize = (entry: RemoteEntry) => {
-    if (entry.is_dir) return '---';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    let value = entry.size;
-    let unit = 0;
-    while (value >= 1024 && unit < units.length - 1) {
-        value /= 1024;
-        unit += 1;
-    }
-    return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
-};
+onBeforeUnmount(() => {
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', endDrag);
+    if (info.value) invoke('ssh_disconnect', { sessionId: info.value.session_id });
+});
 </script>
 
 <template>
-    <div class="session">
-        <template v-if="!host">
-            <div class="missing">
-                <h3>主机不存在</h3>
-                <p>它可能已被删除。</p>
-                <Button label="返回 Home" @click="router.push('/')" />
-            </div>
-        </template>
+    <div v-if="!host" class="missing">
+        <h3>主机不存在</h3>
+        <p>它可能已被删除。</p>
+        <Button label="返回 Home" @click="router.push('/')" />
+    </div>
 
-        <template v-else>
-            <header class="head">
-                <div class="identity">
-                    <i class="pi pi-server" />
-                    <div>
-                        <div class="name">{{ host.name || host.address }}</div>
-                        <div class="addr">{{ host.username || 'root' }}@{{ host.address }}:{{ host.port ?? 22 }}</div>
+    <div v-else class="session">
+        <header class="head">
+            <div class="identity">
+                <i class="pi pi-server" />
+                <div>
+                    <div class="name">{{ host.name || host.address }}</div>
+                    <div class="addr">
+                        {{ host.username || 'root' }}@{{ host.address }}:{{ host.port ?? 22 }}
                     </div>
                 </div>
-                <div class="ops">
-                    <Button
-                        v-if="!info"
-                        label="连接"
-                        icon="pi pi-bolt"
-                        :loading="busy"
-                        @click="connect"
-                    />
-                    <template v-else>
-                        <Button label="断开" severity="secondary" text @click="disconnect" />
-                    </template>
-                </div>
-            </header>
-
-            <p v-if="error" class="error">{{ error }}</p>
-
-            <div v-if="info" class="meta">
-                <span>{{ info.banner }}</span>
-                <span class="fingerprint">SHA256 {{ info.fingerprint_sha256.slice(0, 24) }}…</span>
-                <span>{{ info.kex }}</span>
+                <span v-if="info" class="pill connected">已连接</span>
+                <span v-else-if="connecting" class="pill">连接中…</span>
+                <span v-else class="pill">未连接</span>
             </div>
 
-            <div v-if="info" class="browser">
-                <div class="pathbar">
-                    <button class="icon-btn" title="上级" @click="goUp"><i class="pi pi-arrow-up" /></button>
-                    <InputText v-model="path" class="path" @keyup.enter="list" />
-                    <button class="icon-btn" title="刷新" @click="list"><i class="pi pi-refresh" /></button>
-                </div>
-
-                <div class="list">
-                    <div class="row head-row">
-                        <span class="col-name">名称</span>
-                        <span class="col-size">大小</span>
-                    </div>
-                    <div
-                        v-for="entry in entries"
-                        :key="entry.path"
-                        class="row"
-                        :class="{ dir: entry.is_dir }"
-                        @dblclick="enter(entry)"
-                    >
-                        <span class="col-name">
-                            <i class="pi" :class="entry.is_dir ? 'pi-folder' : 'pi-file'" />
-                            {{ entry.name }}
-                        </span>
-                        <span class="col-size">{{ humanSize(entry) }}</span>
-                    </div>
-                    <div v-if="!entries.length" class="empty">目录为空</div>
-                </div>
+            <div class="ops">
+                <Button v-if="!info" label="重试连接" size="small" :loading="connecting" @click="connect" />
+                <Button v-else label="断开" size="small" severity="secondary" text @click="disconnect" />
+                <Button label="编辑主机" size="small" text @click="router.push('/')" />
             </div>
+        </header>
 
-            <div v-else class="idle">
-                <div class="idle-icon"><i class="pi pi-bolt" /></div>
-                <h3>尚未连接</h3>
-                <p>点右上角「连接」，这里会显示远端目录。</p>
-            </div>
-        </template>
+        <p v-if="remoteError" class="error">{{ remoteError }}</p>
+
+        <div class="panes">
+            <FilePane
+                class="pane-left"
+                :style="{ width: `${split}%` }"
+                label="Local"
+                icon="pi-desktop"
+                :path="localPath"
+                :entries="localEntries"
+                :loading="localLoading"
+                @navigate="loadLocal"
+                @refresh="loadLocal(localPath)"
+                @open="openLocal"
+            />
+            <div class="splitter" @mousedown.prevent="startDrag" />
+            <FilePane
+                class="pane-right"
+                :style="{ width: `${100 - split}%` }"
+                :label="host.name || host.address"
+                icon="pi-server"
+                :path="remotePath"
+                :entries="remoteEntries"
+                :loading="remoteLoading"
+                :empty-text="info ? '空目录' : '尚未连接'"
+                @navigate="loadRemote"
+                @refresh="loadRemote(remotePath)"
+                @open="openRemote"
+            />
+        </div>
+
+        <footer class="statusbar">
+            <span v-if="info">{{ info.banner }}</span>
+            <span v-else>未连接</span>
+            <span v-if="localError" class="warn">{{ localError }}</span>
+            <span class="spacer" />
+            <span>传输队列待接入</span>
+        </footer>
     </div>
 </template>
 
@@ -209,7 +226,7 @@ const humanSize = (entry: RemoteEntry) => {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 20px;
+    padding: 10px 16px;
     border-bottom: 1px solid #e9ecf0;
 }
 
@@ -223,29 +240,49 @@ const humanSize = (entry: RemoteEntry) => {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     border-radius: 8px;
     background: #f1f4f8;
     color: #4b5563;
-    font-size: 14px;
+    font-size: 13px;
 }
 
 .name {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     color: #111827;
 }
 
 .addr {
-    font-size: 12px;
+    font-size: 11px;
     color: #6b7280;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.pill {
+    margin-left: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #f1f4f8;
+    color: #6b7280;
+    font-size: 11px;
+}
+
+.pill.connected {
+    background: #e7f6ec;
+    color: #1a7f37;
+}
+
+.ops {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
 .error {
-    margin: 12px 20px 0;
-    padding: 10px 12px;
+    margin: 10px 16px 0;
+    padding: 8px 10px;
     border-radius: 8px;
     background: #fdf2f0;
     color: #b42318;
@@ -253,151 +290,69 @@ const humanSize = (entry: RemoteEntry) => {
     white-space: pre-wrap;
 }
 
-.meta {
-    display: flex;
-    gap: 16px;
-    padding: 8px 20px;
-    font-size: 11px;
-    color: #9ca3af;
-    border-bottom: 1px solid #f0f2f5;
-}
-
-.fingerprint {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-.browser {
+.panes {
     flex: 1;
     display: flex;
-    flex-direction: column;
     min-height: 0;
+    padding: 10px;
+    gap: 0;
 }
 
-.pathbar {
+.pane-left,
+.pane-right {
+    border: 1px solid #e6e9ed;
+    border-radius: 8px;
+    overflow: hidden;
+    flex: none;
+}
+
+.splitter {
+    width: 10px;
+    cursor: col-resize;
+    flex: none;
+    position: relative;
+}
+
+.splitter::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 4px;
+    width: 2px;
+    border-radius: 1px;
+    background: #e6e9ed;
+}
+
+.splitter:hover::after {
+    background: #cfd6de;
+}
+
+.statusbar {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
-    border-bottom: 1px solid #f0f2f5;
-}
-
-.path {
-    flex: 1;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
-}
-
-.icon-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-    color: #6b7280;
-    cursor: pointer;
-}
-
-.icon-btn:hover {
-    background: #f0f2f5;
-    color: #111827;
-}
-
-.list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 4px 0;
-}
-
-.row {
-    display: flex;
-    align-items: center;
-    padding: 6px 20px;
-    font-size: 13px;
-    color: #374151;
-}
-
-.row:hover {
-    background: #f7f8fa;
-}
-
-.head-row {
+    gap: 12px;
+    height: 30px;
+    padding: 0 16px;
+    border-top: 1px solid #eef0f3;
     font-size: 11px;
     color: #9ca3af;
-    border-bottom: 1px solid #f0f2f5;
 }
 
-.col-name {
+.statusbar .spacer {
     flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
-.col-name i {
-    font-size: 12px;
-    color: #8b93a1;
+.warn {
+    color: #b42318;
 }
 
-.dir .col-name {
-    color: #111827;
-    font-weight: 500;
-}
-
-.col-size {
-    width: 90px;
-    text-align: right;
-    color: #9ca3af;
-    font-size: 12px;
-}
-
-.empty {
-    padding: 24px;
-    text-align: center;
-    font-size: 12px;
-    color: #9ca3af;
-}
-
-.idle,
 .missing {
-    flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    height: 100%;
     gap: 6px;
-    color: #6b7280;
-}
-
-.idle-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 56px;
-    height: 56px;
-    margin-bottom: 6px;
-    border-radius: 14px;
-    background: #eceff3;
-    color: #9ca3af;
-    font-size: 22px;
-}
-
-.idle h3,
-.missing h3 {
-    margin: 0;
-    font-size: 15px;
-    color: #111827;
-}
-
-.idle p,
-.missing p {
-    margin: 0 0 10px;
-    font-size: 13px;
 }
 </style>

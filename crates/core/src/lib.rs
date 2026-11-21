@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use ssh2::{HashType, MethodType, Session};
 use std::collections::HashMap;
 use std::net::{TcpStream, ToSocketAddrs};
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -105,7 +107,10 @@ impl Manager {
     /// 列出远端目录。阻塞，调用方应放在工作线程里。
     pub fn list_dir(&self, session_id: &str, path: &str) -> Result<Vec<RemoteEntry>, String> {
         let tx = {
-            let sessions = self.sessions.lock().map_err(|_| "会话表被污染".to_string())?;
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| "会话表被污染".to_string())?;
             sessions
                 .get(session_id)
                 .ok_or_else(|| format!("会话不存在：{session_id}"))?
@@ -137,10 +142,7 @@ impl Manager {
     }
 }
 
-fn open_session(
-    params: ConnectParams,
-    id: String,
-) -> Result<(SessionHandle, ConnectInfo), String> {
+fn open_session(params: ConnectParams, id: String) -> Result<(SessionHandle, ConnectInfo), String> {
     let addr = format!("{}:{}", params.host, params.port);
     let socket_addr = addr
         .to_socket_addrs()
@@ -192,9 +194,7 @@ fn open_session(
             .map(hex)
             .unwrap_or_default(),
         kex: session.methods(MethodType::Kex).map(|s| s.to_string()),
-        cipher: session
-            .methods(MethodType::CryptCs)
-            .map(|s| s.to_string()),
+        cipher: session.methods(MethodType::CryptCs).map(|s| s.to_string()),
     };
 
     let (tx, rx) = mpsc::channel::<Request>();
@@ -229,6 +229,56 @@ fn worker(session: Session, rx: mpsc::Receiver<Request>) {
             }
         }
     }
+}
+
+/// 本地目录列表。与远端使用同一份 `RemoteEntry`，前端可以复用同一个列表组件。
+pub fn list_local(path: &str) -> Result<Vec<RemoteEntry>, String> {
+    let read = std::fs::read_dir(path).map_err(|e| format!("读取本地目录失败：{e}"))?;
+    let mut out = Vec::new();
+
+    for item in read.flatten() {
+        let entry_path = item.path();
+        let meta = match std::fs::symlink_metadata(&entry_path) {
+            Ok(meta) => meta,
+            Err(_) => continue,
+        };
+        let is_dir = meta.is_dir();
+        let is_symlink = meta.file_type().is_symlink();
+        let size = if is_dir { 0 } else { meta.len() };
+
+        #[cfg(unix)]
+        let perm = Some(meta.mode() & 0o7777);
+        #[cfg(not(unix))]
+        let perm = None;
+
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
+
+        out.push(RemoteEntry {
+            name: item.file_name().to_string_lossy().into_owned(),
+            path: entry_path.to_string_lossy().into_owned(),
+            is_dir,
+            is_symlink,
+            size,
+            perm,
+            mtime,
+        });
+    }
+
+    out.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    Ok(out)
+}
+
+/// 当前用户主目录，供前端做本地栏的默认起点。
+pub fn home_dir() -> String {
+    std::env::var("HOME").unwrap_or_else(|_| "/".to_string())
 }
 
 fn list_dir(sftp: &ssh2::Sftp, path: &str) -> Result<Vec<RemoteEntry>, String> {
@@ -266,4 +316,37 @@ fn hex(bytes: &[u8]) -> String {
         s.push_str(&format!("{b:02x}"));
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lists_local_directory_with_files_and_dirs() {
+        let base = std::env::temp_dir().join("sfterm-core-test-list");
+        let sub = base.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(base.join("a.txt"), b"hi").unwrap();
+
+        let entries = list_local(base.to_str().unwrap()).unwrap();
+        let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
+
+        assert!(names.contains(&"a.txt"));
+        assert!(names.contains(&"sub"));
+        assert!(entries
+            .iter()
+            .find(|e| e.name == "a.txt")
+            .map(|e| !e.is_dir && e.size == 2)
+            .unwrap_or(false));
+        // 目录排在文件前面
+        assert_eq!(entries.first().map(|e| e.is_dir), Some(true));
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn home_dir_is_not_empty() {
+        assert!(!home_dir().is_empty());
+    }
 }
