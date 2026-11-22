@@ -10,4 +10,4 @@ name = "sft-probe"
 path = "src/main.rs"
 
 [dependencies]
-ssh2 = "0.9"
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }

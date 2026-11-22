@@ -11,7 +11,8 @@
 
 <p>
   <img alt="version" src="https://img.shields.io/badge/version-0.1.0-2f81f7?style=flat-square" />
-  <img alt="platform" src="https://img.shields.io/badge/platform-macOS-000000?style=flat-square&logo=apple&logoColor=white" />
+  <a href="https://github.com/wflixu/SFTerm/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/wflixu/SFTerm/actions/workflows/ci.yml/badge.svg" /></a>
+  <img alt="platform" src="https://img.shields.io/badge/platform-macOS%2015%2B-000000?style=flat-square&logo=apple&logoColor=white" />
   <img alt="license" src="https://img.shields.io/badge/license-GPL--3.0--only-2ea44f?style=flat-square" />
   <img alt="tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square" />
   <img alt="rust" src="https://img.shields.io/badge/Rust-1.98.1-000000?style=flat-square&logo=rust&logoColor=white" />
@@ -126,13 +127,26 @@ cargo run --manifest-path crates/core/Cargo.toml --bin engine-check -- \
 |---|---|
 | `pnpm tauri dev` 起不来，提示端口占用 | Vite 设了 `strictPort`。先 `lsof -nP -iTCP:5173 -sTCP:LISTEN`，杀掉旧进程再启动 |
 | 首次启动卡很久 | 第一次要编译整套 Rust 依赖，几分钟属正常；之后是增量编译 |
-| 想清空主机 / 密钥 | 目前没有重置入口，只能在 Home 里逐个删除；数据存在 WebView 的 localStorage（identifier 仍是 Tauri 默认的 `com.tauri.dev`） |
+| 想清空主机 / 密钥 | 目前没有重置入口，只能在 Home 里逐个删除；数据存在 WebView 的 localStorage（bundle id `cn.wflixu.sfterm`） |
 | 界面白屏或操作没反应 | 看 `pnpm tauri dev` 的终端输出：Rust 侧错误与 `tauri-plugin-log` 都打在 stdout / stderr |
 | 改了 Vue 页面不生效 | 确认 dev server 还活着、端口仍是 5173；改 Rust 或 `src-tauri` 配置需要重启 |
+
+### 发布
+
+打 tag 触发 GitHub Actions，自动构建、签名、公证并发布 macOS arm64 的 `.dmg` 和 `.app.zip`：
+
+```bash
+git push                    # 先把当前分支推上去
+git tag v0.2.0
+git push origin --tags      # tag 必须是 v + 版本号
+```
+
+版本号必须同时改 `package.json` 与 `src-tauri/tauri.conf.json`，tag 必须等于 `v<version>`。签名与公证需要的 Secrets 见 [docs/ci.md](docs/ci.md)。
 
 ## 目录结构
 
 ```
+.github/workflows/      CI（PR 测试）与 Release（tag 发版）
 src/                    Vue 应用
   components/           DualPane（双栏）、FilePane（单栏）、HostPicker
   views/home/           Home：Hosts / Keychain / Snippets / Logs
@@ -164,6 +178,7 @@ docs/                   需求基线、架构说明、ADR
 | [需求基线 v0.6](docs/requirements-v0.md) | 已确认决策、界面规格、功能清单与逐条状态 |
 | [架构说明](docs/architecture.md) | 线程模型、命令与事件、标签与会话、技术债 |
 | [路线图](docs/roadmap.md) | 版本节奏、0.2.0 两个问题的现状 / 待定 / 验收 |
+| [CI / 发布](docs/ci.md) | PR 测试、tag 发版、签名公证需要的 Secrets |
 | [ADR-002](docs/adr-002-stay-on-tauri.md) | 留在 Tauri 技术栈、以 SFTP 为核心 |
 | [ADR-001](docs/adr-001-swift-native-macos.md) | Swift 原生方案（已被取代，存档） |
 

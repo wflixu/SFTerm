@@ -7,7 +7,7 @@ description = "SFTerm 的 SSH/SFTP 引擎：与 Tauri 解耦，可独立测试"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-ssh2 = "0.9"
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 
 [[bin]]
 name = "engine-check"
