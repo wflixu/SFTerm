@@ -803,7 +803,9 @@ mod tests {
 
     #[test]
     fn lists_local_directory_with_files_and_dirs() {
-        let base = std::env::temp_dir().join("sfterm-core-test-list");
+        // 每次用独立目录：测试失败时不会把残留状态留给下一次运行。
+        let base = std::env::temp_dir().join(format!("sfterm-core-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
         let sub = base.join("sub");
         std::fs::create_dir_all(&sub).unwrap();
         std::fs::write(base.join("a.txt"), b"hi").unwrap();

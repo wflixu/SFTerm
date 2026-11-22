@@ -5,8 +5,8 @@
 <h1>SFTerm</h1>
 
 <p>
-  <strong>macOS 上的双栏 SFTP 客户端</strong><br />
-  本地一栏，远端一栏；双击主机，再开一个 SSH 终端。
+  <strong>macOS 上的 SSH 与 SFTP 客户端</strong><br />
+  终端按主机开标签；SFTP 一栏本地、一栏远端。
 </p>
 
 <p>
@@ -41,8 +41,9 @@
 
 ## 什么是 SFTerm
 
-- **SFTP 优先** —— 日常动作是把文件在本地面板和远端面板之间搬，所以主界面是一对文件面板，而不是一堆终端窗口。
-- **终端为辅** —— 双击主机卡片开一个 SSH 标签，每个标签一条独立 SSH 会话，切走再切回不会断。
+- **终端和文件在一个窗口** —— 不装插件、不开第二个 App：SSH 终端是标签，SFTP 是常驻面板。
+- **终端按主机开** —— 双击主机卡片开一个 SSH 标签，每个标签一条独立 SSH 会话，切走再切回不会断。
+- **SFTP 是双栏的** —— 左本地、右远端，拖一下就传，不用先 `cd` 再 `get`。
 - **只服务一个人** —— 中文界面、无引导、无账号、无遥测；怎么顺手怎么来。
 
 ## 界面
@@ -111,13 +112,13 @@ pnpm test:unit        # Vitest
 pnpm lint             # oxlint + eslint
 ```
 
-Rust 侧（引擎是独立 crate，仓库没有根 workspace，所以用 `--manifest-path`）：
+Rust 侧（根 `Cargo.toml` 是 workspace，成员为 `sfterm-core` 引擎与 `app` 壳；`tools/probe` 不在其中）：
 
 ```bash
-cargo test  --manifest-path crates/core/Cargo.toml
-cargo build --manifest-path src-tauri/Cargo.toml
+cargo test  -p sfterm-core
+cargo check -p app
 # 不开 UI 也能验连通性 / 传输：
-cargo run --manifest-path crates/core/Cargo.toml --bin engine-check -- \
+cargo run -p sfterm-core --bin engine-check -- \
   --host <host> --user <user> --key ~/.ssh/id_ed25519 --path /home
 ```
 
@@ -146,6 +147,7 @@ git push origin --tags      # tag 必须是 v + 版本号
 ## 目录结构
 
 ```
+Cargo.toml              workspace 根，成员：crates/core、src-tauri
 .github/workflows/      CI（PR 测试）与 Release（tag 发版）
 src/                    Vue 应用
   components/           DualPane（双栏）、FilePane（单栏）、HostPicker
@@ -154,9 +156,9 @@ src/                    Vue 应用
   views/terminal/       终端标签页
   stores/               system · keychain · sftp · tabs · terminals · transfers
   router/               /（Home）、/sftp、/terminal/:hostId
-crates/core/            Rust 引擎：连接、SFTP、本地 fs、shell（独立 crate）
+crates/core/            Rust 引擎：连接、SFTP、本地 fs、shell（crate sfterm-core）
   src/bin/check.rs      engine-check CLI
-src-tauri/              Tauri 壳：commands（cmds.rs）、事件、窗口配置
+src-tauri/              Tauri 壳：commands（cmds.rs）、事件、窗口配置（crate app）
 tools/probe/            sft-probe：早期的连通性 / 算法探测工具
 docs/                   需求基线、架构说明、ADR
 ```
@@ -179,7 +181,7 @@ docs/                   需求基线、架构说明、ADR
 | [架构说明](docs/architecture.md) | 线程模型、命令与事件、标签与会话、技术债 |
 | [路线图](docs/roadmap.md) | 版本节奏、0.2.0 两个问题的现状 / 待定 / 验收 |
 | [CI / 发布](docs/ci.md) | PR 测试、tag 发版、签名公证需要的 Secrets |
-| [ADR-002](docs/adr-002-stay-on-tauri.md) | 留在 Tauri 技术栈、以 SFTP 为核心 |
+| [ADR-002](docs/adr-002-stay-on-tauri.md) | 为什么留在 Tauri 技术栈 |
 | [ADR-001](docs/adr-001-swift-native-macos.md) | Swift 原生方案（已被取代，存档） |
 
 ## 许可

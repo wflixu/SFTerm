@@ -10,7 +10,7 @@
 
 | 工作流 | 触发 | 做什么 |
 |---|---|---|
-| [CI](../.github/workflows/ci.yml) | PR、手动 | `pnpm build`（类型检查 + 构建）、Vitest、`cargo test`（引擎）、`cargo check`（Tauri） |
+| [CI](../.github/workflows/ci.yml) | PR、手动 | `pnpm build`（类型检查 + 构建）、Vitest、`cargo test -p sfterm-core`、`cargo check -p app` |
 | [Release](../.github/workflows/release.yml) | 推送 `v*` tag、手动 | 构建 macOS arm64 的 `.app` 与 `.dmg`，签名、公证，发 GitHub Release |
 
 两个工作流都跑在 `macos-15`（arm64）上。macOS 14 的 runner 已在 2026-11-02 退役。
@@ -155,3 +155,24 @@ CI 里不用 Apple ID，改用 App Store Connect 的 API Key，不会因为账�
 - 第一次发版后尽量不要再改；真要改，得配合导出 / 导入或 0.2.0 的存储迁移。
 
 Tauri CLI 会拒绝用默认的 `com.tauri.dev` 打包，所以这一项是发版的硬性前提。
+
+## CI 耗时说明
+
+0.1.0 第一次跑 CI 的实测（macos-15 arm64，无排队）：
+
+| 阶段 | 耗时 |
+|---|---|
+| 前端安装 + 类型检查/构建 + Vitest | ~22s |
+| 安装 Rust 1.98.1 | ~7s |
+| `cargo test -p sfterm-core` | 91s |
+| `cargo check -p app` | 147s |
+| 保存 Rust 缓存 | ~20s |
+| **合计** | **约 5 分钟** |
+
+几个容易误判的点：
+
+- Actions 页面上的「总时长」包含排队。macOS arm64 runner 有容量限制时会先排队，排队时间不算在 job 里，但你会感觉「跑了 10 分钟」。
+- 冷启动慢的主因是 Rust 依赖要编两遍：以前 `crates/core` 和 `src-tauri` 各有一个 `Cargo.lock`、各自的 `target/`，vendored OpenSSL 也要编两次。现在根目录是 workspace，共享一个 `target/` 和 `Cargo.lock`，依赖只编一次。
+- `Swatinem/rust-cache` 命中后，第二次开始主要只剩增量编译，通常能压到 1–2 分钟。
+
+`tauri.conf.json`、`Cargo.toml` 或依赖变更会让缓存失效，那一次会回到冷启动耗时。

@@ -26,15 +26,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6.1.1
         with:
           version: 10
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: 22
           cache: pnpm
@@ -129,18 +129,14 @@ jobs:
           rustup default "$TOOLCHAIN"
 
       - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            src-tauri -> target
-            crates/core -> target
+        uses: Swatinem/rust-cache@v2.9.3
 
       - name: Build, sign and notarize
         run: pnpm tauri build --target aarch64-apple-darwin --bundles app,dmg --ci
 
       - name: Collect artifacts
         run: |
-          BUNDLE="src-tauri/target/aarch64-apple-darwin/release/bundle"
+          BUNDLE="target/aarch64-apple-darwin/release/bundle"
           APP=$(ls -d "$BUNDLE"/macos/*.app | head -1)
           DMG=$(ls "$BUNDLE"/dmg/*.dmg | head -1)
 

@@ -1,0 +1,5 @@
+[workspace]
+resolver = "2"
+members = ["crates/core", "src-tauri", "tools/probe"]
+# 日常只构建 App 与引擎；探针用 -p sft-probe 单独跑。
+default-members = ["crates/core", "src-tauri"]

@@ -19,15 +19,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6.1.1
         with:
           version: 10
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: 22
           cache: pnpm
@@ -49,14 +49,10 @@ jobs:
           rustup default "$TOOLCHAIN"
 
       - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            src-tauri -> target
-            crates/core -> target
+        uses: Swatinem/rust-cache@v2.9.3
 
       - name: Rust tests (engine)
-        run: cargo test --manifest-path crates/core/Cargo.toml
+        run: cargo test --locked -p sfterm-core
 
       - name: Rust check (Tauri app)
-        run: cargo check --manifest-path src-tauri/Cargo.toml
+        run: cargo check --locked -p app
