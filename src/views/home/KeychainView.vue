@@ -1,30 +1,38 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useKeychainStore } from '@/stores/keychain';
+import { useSystemStore } from '@/stores/system';
 import { useConfirm } from 'primevue/useconfirm';
 import { keyTypeOf } from '@/lib/keytype';
-import { keyPrivateAccount, secretDelete, secretGet, secretSet } from '@/lib/secrets';
+import {
+    keyPassphraseAccount,
+    keyPrivateAccount,
+    secretDelete,
+    secretGet,
+    secretSet,
+} from '@/lib/secrets';
 import type { IKeyEntry } from '@/shared/interface';
 
 const store = useKeychainStore();
+const system = useSystemStore();
 const ask = useConfirm();
 
 const dialogOpen = ref(false);
 const editing = ref<IKeyEntry | null>(null);
-const form = ref({ label: '', privateKey: '', publicKey: '' });
+const form = ref({ label: '', privateKey: '', publicKey: '', passphrase: '' });
 const error = ref('');
 
 const openCreate = () => {
     editing.value = null;
     error.value = '';
-    form.value = { label: '', privateKey: '', publicKey: '' };
+    form.value = { label: '', privateKey: '', publicKey: '', passphrase: '' };
     dialogOpen.value = true;
 };
 
 const openEdit = async (entry: IKeyEntry) => {
     editing.value = entry;
     error.value = '';
-    form.value = { label: entry.label, privateKey: '', publicKey: entry.publicKey };
+    form.value = { label: entry.label, privateKey: '', publicKey: entry.publicKey, passphrase: '' };
     dialogOpen.value = true;
     try {
         form.value.privateKey = (await secretGet(keyPrivateAccount(entry.id))) ?? '';
@@ -40,16 +48,22 @@ const save = async () => {
     }
 
     const type = keyTypeOf(form.value.privateKey);
+    const passphrase = form.value.passphrase;
     try {
         if (editing.value) {
             if (form.value.privateKey) {
                 await secretSet(keyPrivateAccount(editing.value.id), form.value.privateKey);
             }
+            if (passphrase) {
+                await secretSet(keyPassphraseAccount(editing.value.id), passphrase);
+            }
+            const hasPassphrase = passphrase ? true : editing.value.hasPassphrase;
             store.update({
                 ...editing.value,
                 label: form.value.label.trim(),
                 publicKey: form.value.publicKey,
                 privateKey: undefined,
+                hasPassphrase,
                 type: type === '未知' ? editing.value.type : type,
             });
         } else {
@@ -59,7 +73,14 @@ const save = async () => {
             }
             const id = `${Date.now()}`;
             await secretSet(keyPrivateAccount(id), form.value.privateKey);
-            store.add({ id, label: form.value.label.trim(), publicKey: form.value.publicKey, type });
+            if (passphrase) await secretSet(keyPassphraseAccount(id), passphrase);
+            store.add({
+                id,
+                label: form.value.label.trim(),
+                publicKey: form.value.publicKey,
+                type,
+                hasPassphrase: Boolean(passphrase),
+            });
         }
         error.value = '';
         dialogOpen.value = false;
@@ -69,15 +90,22 @@ const save = async () => {
 };
 
 const remove = (entry: IKeyEntry) => {
+    const users = system.hosts.filter((host) => host.keyId === entry.id);
+    const usage = users.length
+        ? `有 ${users.length} 台主机正在使用它：${users
+              .map((host) => host.name || host.address)
+              .join('、')}。删除后这些主机会连不上。`
+        : '';
     ask.require({
         header: '删除密钥',
-        message: `删除密钥「${entry.label}」？私钥会同时从系统钥匙串移除。`,
+        message: `删除密钥「${entry.label}」？${usage}私钥和口令会同时从系统钥匙串移除。`,
         icon: 'pi pi-exclamation-triangle',
         rejectProps: { label: '取消', severity: 'secondary', text: true },
         acceptProps: { label: '删除', severity: 'danger' },
         accept: async () => {
             try {
                 await secretDelete(keyPrivateAccount(entry.id));
+                await secretDelete(keyPassphraseAccount(entry.id));
             } catch (e) {
                 console.error('[keychain] 删除钥匙串条目失败', entry.id, e);
             }
@@ -97,6 +125,20 @@ const importFile = async (event: Event, kind: 'privateKey' | 'publicKey') => {
 
 const typeOf = (entry: IKeyEntry) => entry.type ?? keyTypeOf(entry.privateKey);
 
+const usage = (entry: IKeyEntry) => system.hosts.filter((host) => host.keyId === entry.id).length;
+
+const clearPassphrase = async () => {
+    if (!editing.value) return;
+    try {
+        await secretDelete(keyPassphraseAccount(editing.value.id));
+        editing.value = { ...editing.value, hasPassphrase: false };
+        form.value.passphrase = '';
+        store.update(editing.value);
+    } catch (e) {
+        error.value = `清除口令失败：${e}`;
+    }
+};
+
 const selected = ref('');
 
 const publicKeyPreview = (publicKey: string) => {
@@ -110,7 +152,10 @@ const publicKeyPreview = (publicKey: string) => {
 
 // 关闭对话框后不把私钥文本留在内存里。
 watch(dialogOpen, (open) => {
-    if (!open) form.value.privateKey = '';
+    if (!open) {
+        form.value.privateKey = '';
+        form.value.passphrase = '';
+    }
 });
 </script>
 
@@ -138,6 +183,7 @@ watch(dialogOpen, (open) => {
           <div class="headings">
             <div class="label">{{ entry.label }}</div>
             <span class="type">{{ typeOf(entry) }}</span>
+            <span v-if="usage(entry)" class="usage">{{ usage(entry) }} 台主机</span>
           </div>
           <div class="actions">
             <button class="icon-btn" title="编辑" @click.stop="openEdit(entry)">
@@ -168,6 +214,17 @@ watch(dialogOpen, (open) => {
           <label>Private Key</label>
           <textarea v-model="form.privateKey" rows="7" spellcheck="false" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" />
           <input type="file" @change="importFile($event, 'privateKey')" />
+        </div>
+        <div class="field">
+          <label>私钥口令（可选）</label>
+          <InputText
+            v-model="form.passphrase"
+            type="password"
+            :placeholder="editing?.hasPassphrase ? '已保存，留空则不修改' : '私钥没有口令就留空'"
+          />
+          <button v-if="editing?.hasPassphrase" type="button" class="link" @click="clearPassphrase">
+            清除已保存的口令
+          </button>
         </div>
         <div class="field">
           <label>Public Key</label>

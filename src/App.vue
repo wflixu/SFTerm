@@ -9,6 +9,7 @@ import { useSystemStore } from '@/stores/system';
 import { useKeychainStore } from '@/stores/keychain';
 import { useSnippetsStore } from '@/stores/snippets';
 import { migrateSecrets } from '@/lib/migrateSecrets';
+import { cleanupSecrets } from '@/lib/cleanup';
 
 const route = useRoute();
 const router = useRouter();
@@ -38,6 +39,7 @@ onMounted(async () => {
     await Promise.all([system.hydrate(), keychain.hydrate(), snippets.hydrate()]).catch((error) =>
       console.error('[db] 读取本地数据失败', error),
     );
+    void cleanupSecrets();
   }
   unlistenTransfer = await listen<{ id: string; done: number; total: number }>('transfer-progress', (event) => {
     transfers.update(event.payload.id, event.payload.done, event.payload.total);

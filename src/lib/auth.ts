@@ -1,6 +1,6 @@
 import type { IHost } from '@/shared/interface';
 import { useKeychainStore } from '@/stores/keychain';
-import { keyPrivateAccount, resolveHostPassword, secretGet } from './secrets';
+import { keyPassphraseAccount, keyPrivateAccount, resolveHostPassword, secretGet } from './secrets';
 
 /** 与 Rust 侧 `AuthMethod` 的 serde 表示一致（snake_case）。 */
 export type HostAuth =
@@ -24,10 +24,14 @@ export async function resolveHostAuth(host: IHost): Promise<HostAuth> {
             throw new Error('这台主机引用的密钥已不在系统钥匙串里，请到 Keychain 重新选择。');
         }
         const publicKey = entry?.publicKey?.trim();
+        const passphrase = entry?.hasPassphrase
+            ? ((await secretGet(keyPassphraseAccount(host.keyId))) ?? undefined)
+            : undefined;
         return {
             kind: 'key_memory',
             private_key: privateKey,
             ...(publicKey ? { public_key: publicKey } : {}),
+            ...(passphrase ? { passphrase } : {}),
         };
     }
 

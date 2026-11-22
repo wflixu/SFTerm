@@ -51,6 +51,34 @@ describe('resolveHostAuth', () => {
         });
     });
 
+    it('passes a stored passphrase for protected keys', async () => {
+        memory.set(
+            'keys',
+            JSON.stringify([
+                {
+                    id: 'k1',
+                    label: 'laptop',
+                    publicKey: 'ssh-ed25519 AAAA',
+                    type: 'OpenSSH',
+                    hasPassphrase: true,
+                },
+            ]),
+        );
+        mockSecret({
+            'key:k1:private': 'PRIVATE',
+            'key:k1:passphrase': 'pw',
+        });
+
+        const auth = await resolveHostAuth({ id: 'h1', name: 'web', address: '10.0.0.1', keyId: 'k1' });
+
+        expect(auth).toEqual({
+            kind: 'key_memory',
+            private_key: 'PRIVATE',
+            public_key: 'ssh-ed25519 AAAA',
+            passphrase: 'pw',
+        });
+    });
+
     it('still supports a private key file path', async () => {
         const auth = await resolveHostAuth({
             id: 'h1',

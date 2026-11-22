@@ -40,6 +40,8 @@ export interface IKeyEntry {
     publicKey: string;
     /** 解析自私钥的算法名，迁移后替代私钥用于列表展示。 */
     type?: string;
+    /** 私钥口令是否已存系统钥匙串。 */
+    hasPassphrase?: boolean;
 }
 
 export interface IConnection {

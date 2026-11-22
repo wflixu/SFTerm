@@ -66,7 +66,7 @@ manager.list_dir(id, path)                  // UI 侧（spawn_blocking）
 | 命令 | 作用 | 备注 |
 |---|---|---|
 | `ssh_connect` | 建连 + 认证，启动会话线程（SFTP 在会话线程里打开） | 返回 `ConnectInfo`（banner、主机密钥类型、SHA256 指纹） |
-| `secret_set` / `secret_get` / `secret_delete` | 系统钥匙串读写删 | 服务名 `cn.wflixu.sfterm`，account 由前端拼（`host:<id>:password`、`key:<id>:private`） |
+| `secret_set` / `secret_get` / `secret_delete` | 系统钥匙串读写删 | 服务名 `cn.wflixu.sfterm`，account 由前端拼（`host:<id>:password`、`key:<id>:private`、`key:<id>:passphrase`） |
 | `db_get_state` / `db_set_state` | SQLite state 表读写 JSON | 目前存 `hosts`、`keys`、`snippets` 三份元数据 |
 | `history_add` / `history_list` / `history_clear` | 终端命令历史 | 支持按命令或主机名搜索 |
 | `ssh_disconnect` / `ssh_sessions` | 断开 / 列出会话 | 调试用 |

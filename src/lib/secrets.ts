@@ -5,6 +5,8 @@ import type { IHost } from '@/shared/interface';
 export const hostPasswordAccount = (id: string) => `host:${id}:password`;
 /** 密钥条目私钥文本在钥匙串里的 account。 */
 export const keyPrivateAccount = (id: string) => `key:${id}:private`;
+/** 密钥条目私钥口令在钥匙串里的 account。 */
+export const keyPassphraseAccount = (id: string) => `key:${id}:passphrase`;
 
 /** WebView 开发模式（没有 Tauri IPC）下不能访问钥匙串。 */
 export const hasKeychain = () =>
