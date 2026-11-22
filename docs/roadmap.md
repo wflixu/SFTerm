@@ -1,6 +1,6 @@
 # SFTerm 路线图与待办
 
-- **状态**：0.2.0 规划中
+- **状态**：0.2.0 进行中（密码存储的 Keychain 部分已完成）
 - **日期**：2026-11-22
 - **关联**：[需求基线](requirements-v0.md) · [架构说明](architecture.md)
 
@@ -10,9 +10,9 @@
 
 | 版本 | 主题 | 状态 |
 |---|---|---|
-| 0.1.0 | SSH 终端标签、双栏 SFTP、会话缓存 | 已完成，未发布 |
+| 0.1.0 | SSH 终端标签、双栏 SFTP、会话缓存 | 已发布 · [v0.1.0](https://github.com/wflixu/SFTerm/releases/tag/v0.1.0) |
 | 0.1.x | 目录递归传输、拖拽、传输取消 / 暂停、主机指纹确认 | 待排 |
-| **0.2.0** | **密码存储** + **终端命令历史** | 本次规划 |
+| **0.2.0** | **密码存储** + **终端命令历史** | 进行中 |
 | 0.3+ | 设置页、自动重连、Snippets、预览、`sftp://` | 见[需求 P1](requirements-v0.md#p1) |
 
 ## 0.2.0：两个必须解决的问题
@@ -25,8 +25,9 @@
 
 **0.2.0 检查清单**
 
+- [x] TODO-1 密码存储：主机密码 / 私钥进系统钥匙串，旧数据启动时自动迁移
+- [ ] TODO-1 收尾：私钥口令、Keychain 条目回收、引用检查
 - [ ] 持久层：SQLite schema（主机 / 设置 / 终端历史）+ 一次性迁移脚本
-- [ ] TODO-1 密码存储：凭据进系统 Keychain，清掉 localStorage 里的明文
 - [ ] TODO-2 终端命令历史：命令与输出跨重启保存、可搜索
 - [ ] 迁移后人工验证：老主机能连、老密钥能用、历史能翻
 
@@ -34,7 +35,15 @@
 
 ### TODO-1：密码的存储
 
-**现状**
+**进展（0.2.0）**
+
+- 已实现：`secret_set` / `secret_get` / `secret_delete` 三个命令接系统钥匙串（service `cn.wflixu.sfterm`），主机密码与密钥私钥文本在启动时从 localStorage 迁移进钥匙串，迁移成功后从 `hosts` / `keys` 里抹掉。
+- 主机地址、公钥等元数据仍在 localStorage；SQLite 持久层未做。
+- 私钥口令（passphrase）表单仍未提供，Keychain 条目回收策略也还没收尾。
+- 主机编辑里「密钥」认证改为从 Keychain 条目下拉选择，连接时用 `userauth_pubkey_memory` 内存认证；Keychain 页改为卡片网格。
+- 已知限制：开发版每次重编译签名会变，钥匙串 ACL 可能重新弹授权；从 dev 切到正式签名版时，旧条目可能因签名不同读不到，需要重新填一次密码。
+
+**改之前的现状**
 
 - 主机密码、私钥文本、口令全部以明文存在 WebView 的 localStorage（`hosts`、`keys` 两个键），Rust 侧不落盘。
 - 连接时把明文密码从 JS 经 Tauri command 传给 Rust（`AuthMethod::Password` / `Key { passphrase }`）。

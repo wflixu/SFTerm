@@ -1,6 +1,6 @@
 [package]
 name = "sft-probe"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "GPL-3.0-only"
 description = "SFTerm 连接探针：打印 SSH 协商算法、认证方式、SFTP 目录，用于排查老服务器兼容性"

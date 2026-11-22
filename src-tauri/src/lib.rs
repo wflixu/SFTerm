@@ -40,6 +40,9 @@ pub fn run() {
             cmds::shell_resize,
             cmds::shell_close,
             cmds::ssh_sessions,
+            cmds::secret_set,
+            cmds::secret_get,
+            cmds::secret_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

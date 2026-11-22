@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import FilePane from './FilePane.vue';
 import { useTransfersStore, type TransferTask } from '@/stores/transfers';
+import { resolveHostAuth } from '@/lib/auth';
 import type { FileEntry, IHost } from '@/shared/interface';
 
 interface ConnectInfo {
@@ -117,18 +118,17 @@ const connect = async () => {
         remoteError.value = '主机信息不完整：缺少地址，回 Home 编辑一下。';
         return;
     }
-    if (!host.keyPath && !host.password) {
-        remoteError.value = '这台主机还没有配置认证方式，回 Home 点铅笔补一下。';
+    let auth;
+    try {
+        auth = await resolveHostAuth(host);
+    } catch (e) {
+        remoteError.value = String(e);
         return;
     }
 
     connecting.value = true;
     remoteError.value = '';
     try {
-        const auth = host.keyPath
-            ? { kind: 'key', path: host.keyPath }
-            : { kind: 'password', password: host.password ?? '' };
-
         info.value = await invoke<ConnectInfo>('ssh_connect', {
             params: {
                 host: host.address,

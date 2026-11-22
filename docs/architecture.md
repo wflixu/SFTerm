@@ -66,6 +66,7 @@ manager.list_dir(id, path)                  // UI 侧（spawn_blocking）
 | 命令 | 作用 | 备注 |
 |---|---|---|
 | `ssh_connect` | 建连 + 认证，启动会话线程（SFTP 在会话线程里打开） | 返回 `ConnectInfo`（banner、主机密钥类型、SHA256 指纹） |
+| `secret_set` / `secret_get` / `secret_delete` | 系统钥匙串读写删 | 服务名 `cn.wflixu.sfterm`，account 由前端拼（`host:<id>:password`、`key:<id>:private`） |
 | `ssh_disconnect` / `ssh_sessions` | 断开 / 列出会话 | 调试用 |
 | `sftp_home` | 远端 `realpath(".")` | 登录后的默认目录；失败时前端回退 `/home` |
 | `sftp_list_dir` | 列远端目录 | 返回 `perm`（数字 mode）、大小、mtime、符号链接标记；UI 暂未显示权限串 |
@@ -130,7 +131,7 @@ manager.list_dir(id, path)                  // UI 侧（spawn_blocking）
 | 无背压 | 输出块直接堆在 store（512 KB 上限） | 超限会丢早期输出 |
 | 死亡会话不感知 | shell 进程退出后前端仍显示「已连接」 | 需要 exit 事件与状态回收 |
 | 传输不可取消 | 没有取消通道 | 只能等传完或退出标签 |
-| 存储 | 主机、密钥、密码都在 localStorage | 迁移到 SQLite + 系统 Keychain 之前不要存真实凭据（0.2.0，见 [roadmap](roadmap.md)） |
+| 存储 | 密码、私钥已在系统钥匙串；主机与公钥等元数据仍在 localStorage | SQLite 持久层还没做，见 [roadmap](roadmap.md) |
 | 终端历史 | 输出只在内存（512 KB），重启即丢；没有命令边界 | 0.2.0 做命令历史，边界方案见 [roadmap](roadmap.md) |
 | 主机密钥 | 只显示指纹，无 TOFU 确认 | 中间人无法被拦截（个人自用可接受） |
 | 目录传输 | 只支持单文件 | 递归需要引擎侧遍历 + 队列 |

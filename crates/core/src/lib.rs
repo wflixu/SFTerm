@@ -48,6 +48,14 @@ pub enum AuthMethod {
         #[serde(default)]
         passphrase: Option<String>,
     },
+    /// 私钥内容直接放在内存里认证（从系统钥匙串取出，不落盘）。
+    KeyMemory {
+        private_key: String,
+        #[serde(default)]
+        public_key: Option<String>,
+        #[serde(default)]
+        passphrase: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -407,6 +415,32 @@ where
 }
 
 /// 只建立连接、握手、认证，不启动 SFTP 工作线程。
+
+/// 按 `ConnectParams.auth` 完成认证。两处建连（SFTP / 终端）共用。
+fn authenticate(session: &Session, params: &ConnectParams) -> Result<(), String> {
+    match &params.auth {
+        AuthMethod::Password { password } => session
+            .userauth_password(&params.username, password)
+            .map_err(|e| format!("密码认证失败：{e}"))?,
+        AuthMethod::Key { path, passphrase } => session
+            .userauth_pubkey_file(&params.username, None, Path::new(path), passphrase.as_deref())
+            .map_err(|e| format!("密钥认证失败：{e}"))?,
+        AuthMethod::KeyMemory {
+            private_key,
+            public_key,
+            passphrase,
+        } => session
+            .userauth_pubkey_memory(
+                &params.username,
+                public_key.as_deref(),
+                private_key,
+                passphrase.as_deref(),
+            )
+            .map_err(|e| format!("密钥认证失败：{e}"))?,
+    }
+    Ok(())
+}
+
 fn connect_raw(params: ConnectParams) -> Result<Session, String> {
     let addr = format!("{}:{}", params.host, params.port);
     let socket_addr = addr
@@ -427,14 +461,7 @@ fn connect_raw(params: ConnectParams) -> Result<Session, String> {
         .handshake()
         .map_err(|e| format!("SSH 握手失败：{e}"))?;
 
-    match &params.auth {
-        AuthMethod::Password { password } => session
-            .userauth_password(&params.username, password)
-            .map_err(|e| format!("密码认证失败：{e}"))?,
-        AuthMethod::Key { path, passphrase } => session
-            .userauth_pubkey_file(&params.username, None, Path::new(path), passphrase.as_deref())
-            .map_err(|e| format!("密钥认证失败：{e}"))?,
-    }
+    authenticate(&session, &params)?;
 
     if !session.authenticated() {
         return Err("认证未通过".to_string());
@@ -464,19 +491,7 @@ fn open_session(params: ConnectParams, id: String) -> Result<(SessionHandle, Con
         .handshake()
         .map_err(|e| format!("SSH 握手失败：{e}"))?;
 
-    match &params.auth {
-        AuthMethod::Password { password } => session
-            .userauth_password(&params.username, password)
-            .map_err(|e| format!("密码认证失败：{e}"))?,
-        AuthMethod::Key { path, passphrase } => session
-            .userauth_pubkey_file(
-                &params.username,
-                None,
-                Path::new(path),
-                passphrase.as_deref(),
-            )
-            .map_err(|e| format!("密钥认证失败：{e}"))?,
-    }
+    authenticate(&session, &params)?;
 
     if !session.authenticated() {
         return Err("认证未通过".to_string());

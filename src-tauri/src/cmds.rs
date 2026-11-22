@@ -279,3 +279,41 @@ pub fn ssh_disconnect(state: State<'_, Arc<Manager>>, session_id: String) -> boo
 pub fn ssh_sessions(state: State<'_, Arc<Manager>>) -> Vec<String> {
     state.session_ids()
 }
+
+// ---------------------------------------------------------------------------
+// 系统钥匙串：密码、私钥文本、口令都放这里，不落 localStorage。
+// ---------------------------------------------------------------------------
+
+/// macOS 钥匙串里的 service 名；account 由前端按用途拼接（host:<id>:password 等）。
+const KEYCHAIN_SERVICE: &str = "cn.wflixu.sfterm";
+
+fn keychain_entry(account: &str) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(KEYCHAIN_SERVICE, account).map_err(|e| format!("打开钥匙串失败：{e}"))
+}
+
+/// 写入或覆盖一条凭据。
+#[tauri::command]
+pub fn secret_set(account: String, value: String) -> Result<(), String> {
+    keychain_entry(&account)?
+        .set_password(&value)
+        .map_err(|e| format!("写入钥匙串失败：{e}"))
+}
+
+/// 读取一条凭据；不存在时返回 null。
+#[tauri::command]
+pub fn secret_get(account: String) -> Result<Option<String>, String> {
+    match keychain_entry(&account)?.get_password() {
+        Ok(value) => Ok(Some(value)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(format!("读取钥匙串失败：{e}")),
+    }
+}
+
+/// 删除一条凭据；不存在时视为成功。
+#[tauri::command]
+pub fn secret_delete(account: String) -> Result<(), String> {
+    match keychain_entry(&account)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(format!("删除钥匙串条目失败：{e}")),
+    }
+}

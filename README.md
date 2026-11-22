@@ -10,7 +10,7 @@
 </p>
 
 <p>
-  <img alt="version" src="https://img.shields.io/badge/version-0.1.0-2f81f7?style=flat-square" />
+  <a href="https://github.com/wflixu/SFTerm/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/wflixu/SFTerm?style=flat-square&color=2f81f7" /></a>
   <a href="https://github.com/wflixu/SFTerm/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/wflixu/SFTerm/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="platform" src="https://img.shields.io/badge/platform-macOS%2015%2B-000000?style=flat-square&logo=apple&logoColor=white" />
   <img alt="license" src="https://img.shields.io/badge/license-GPL--3.0--only-2ea44f?style=flat-square" />
@@ -20,6 +20,7 @@
 </p>
 
 <p>
+  <a href="https://github.com/wflixu/SFTerm/releases/latest"><strong>下载</strong></a> ·
   <a href="docs/requirements-v0.md">需求基线</a> ·
   <a href="docs/architecture.md">架构说明</a> ·
   <a href="docs/adr-002-stay-on-tauri.md">技术选型</a> ·
@@ -36,8 +37,22 @@
 </p>
 
 > [!NOTE]
-> **0.1.0 · 开发中原型。** 只给作者本人使用，不对外分发；没有安装包、自动更新、i18n 和 onboarding。
-> 主机、密钥、密码暂存在 WebView 的 localStorage 里 —— 暂时别拿它管你不在意的服务器。
+> **早期版本，功能不齐。** 每个 tag 由 CI 构建签名、公证过的 Apple Silicon 安装包，见 [Releases](https://github.com/wflixu/SFTerm/releases/latest)；还没有自动更新、i18n 和 onboarding。
+> 密码与私钥现在存进 macOS 系统钥匙串；主机地址、公钥等元数据仍在 WebView 的 localStorage 里。
+
+## 下载
+
+[Releases](https://github.com/wflixu/SFTerm/releases/latest) 页每个版本有三个文件：
+
+| 文件 | 用途 |
+|---|---|
+| `SFTerm_<版本>_arm64.dmg` | 常规安装：打开后把 `SFTerm.app` 拖进「应用程序」 |
+| `SFTerm_<版本>_arm64.app.zip` | 只要 `.app`，或者想留一份归档 |
+| `SHA256SUMS.txt` | 校验完整性：三个文件放在同一目录后 `shasum -a 256 -c SHA256SUMS.txt` |
+
+- 要求 **macOS 15 及以上 + Apple Silicon**；没有 Intel 构建，也不做 universal。
+- 安装包由 Developer ID 签名并通过 Apple 公证，首次打开不用去「隐私与安全性」里放行。
+- 版本号跟着 tag 走，[v0.1.0](https://github.com/wflixu/SFTerm/releases/tag/v0.1.0) 是第一个。
 
 ## 什么是 SFTerm
 
@@ -64,12 +79,13 @@
 | 主机管理：卡片、搜索、新建 / 编辑 / 删除 | 可用 |
 | 双击主机 → 打开或切到该主机的 SSH 终端标签 | 可用 |
 | 认证：密码、私钥（公钥认证） | 可用；带口令私钥引擎支持，表单还没有口令输入框 |
+| 凭据存储：主机密码 / 私钥进系统钥匙串 | 可用（旧数据启动时自动迁移，明文从 localStorage 抹掉） |
 | SFTP 双栏：本地只读 + 远端可写，可拖动分隔条 | 可用 |
 | 单文件上传 / 下载，底部进度队列 | 可用 |
 | 同名冲突：覆盖 / 新建副本 / 跳过 | 可用（逐项确认） |
 | 远端操作：新建文件夹、重命名、删除（目录递归） | 可用 |
 | 终端：多标签、窗口自适应、切换标签不断线 | 可用 |
-| 密钥条目：Label / 私钥 / 公钥、从文件导入 | 可用（存 localStorage） |
+| 密钥条目：Label / 私钥 / 公钥、从文件导入 | 可用（私钥存钥匙串，公钥在 localStorage） |
 | Snippets / Logs | 空状态占位 |
 
 ## 还不能做什么
@@ -80,7 +96,7 @@
 - **冲突预检与「对全部应用」**：逐个弹窗，没有批量策略。
 - **远端 chmod、多选、排序、隐藏文件开关、快速过滤**。
 - **主机指纹确认（TOFU）**：只显示指纹，不比对、不阻断。
-- **系统 Keychain / SQLite**：主机、密钥、密码都在 localStorage。
+- **SQLite**：主机、密钥标签等元数据仍在 localStorage；密码与私钥已进系统钥匙串。
 - **断线自动重连**：终端有「重连」按钮，SFTP 断了要手动重连。
 - **设置页、Snippets、日志、预览、`sftp://`、跳板机**。
 
@@ -131,6 +147,7 @@ cargo run -p sfterm-core --bin engine-check -- \
 | 想清空主机 / 密钥 | 目前没有重置入口，只能在 Home 里逐个删除；数据存在 WebView 的 localStorage（bundle id `cn.wflixu.sfterm`） |
 | 界面白屏或操作没反应 | 看 `pnpm tauri dev` 的终端输出：Rust 侧错误与 `tauri-plugin-log` 都打在 stdout / stderr |
 | 改了 Vue 页面不生效 | 确认 dev server 还活着、端口仍是 5173；改 Rust 或 `src-tauri` 配置需要重启 |
+| 反复弹「钥匙串想访问…」 | 开发版每次重编译签名会变，钥匙串 ACL 要重新授权；点「始终允许」即可，正式签名版只会在首次安装后确认一次 |
 
 ### 发布
 
@@ -142,7 +159,7 @@ git tag v0.2.0
 git push origin --tags      # tag 必须是 v + 版本号
 ```
 
-版本号必须同时改 `package.json` 与 `src-tauri/tauri.conf.json`，tag 必须等于 `v<version>`。签名与公证需要的 Secrets 见 [docs/ci.md](docs/ci.md)。
+版本号必须同时改 `package.json` 与 `src-tauri/tauri.conf.json`，tag 必须等于 `v<version>`。构建成功后 workflow 自动创建 GitHub Release，产物就是[下载](#下载)里那三个文件。签名与公证需要的 Secrets 见 [docs/ci.md](docs/ci.md)。
 
 ## 目录结构
 

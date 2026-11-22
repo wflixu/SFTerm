@@ -5,6 +5,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useTabsStore } from '@/stores/tabs';
 import { useTransfersStore } from '@/stores/transfers';
 import { useTerminalsStore } from '@/stores/terminals';
+import { migrateSecrets } from '@/lib/migrateSecrets';
 
 const route = useRoute();
 const router = useRouter();
@@ -22,6 +23,8 @@ onErrorCaptured((error) => {
 let unlistenTransfer: UnlistenFn | null = null;
 let unlistenShell: UnlistenFn | null = null;
 onMounted(async () => {
+  // 先把旧 localStorage 里的明文凭据搬进系统钥匙串，再开始监听事件。
+  await migrateSecrets().catch((error) => console.error('[secrets] 迁移失败', error));
   unlistenTransfer = await listen<{ id: string; done: number; total: number }>('transfer-progress', (event) => {
     transfers.update(event.payload.id, event.payload.done, event.payload.total);
   });
@@ -87,6 +90,7 @@ const close = (id: string) => {
       </div>
       <RouterView v-else />
     </main>
+    <ConfirmDialog />
   </div>
 </template>
 

@@ -7,6 +7,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useSystemStore } from '@/stores/system';
 import { useSftpStore } from '@/stores/sftp';
 import { useTerminalsStore } from '@/stores/terminals';
+import { resolveHostAuth } from '@/lib/auth';
 
 const route = useRoute();
 const router = useRouter();
@@ -59,9 +60,12 @@ const start = async () => {
 
     const target = terminals.ensure(shellId.value);
 
-    if (!current.keyPath && !current.password) {
+    let auth;
+    try {
+        auth = await resolveHostAuth(current);
+    } catch (e) {
         target.status = 'error';
-        target.error = '这台主机还没有配置认证方式，回 Home 编辑一下。';
+        target.error = String(e);
         writeError(target.error);
         return;
     }
@@ -72,9 +76,7 @@ const start = async () => {
             host: current.address,
             port: current.port ?? 22,
             username: current.username || 'root',
-            auth: current.keyPath
-                ? { kind: 'key', path: current.keyPath }
-                : { kind: 'password', password: current.password ?? '' },
+            auth,
         },
         term?.cols ?? 80,
         term?.rows ?? 24,

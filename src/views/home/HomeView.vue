@@ -39,7 +39,7 @@ const items = computed(() => [
     </aside>
 
     <section class="panel">
-      <HostView v-if="active === 'hosts'" />
+      <HostView v-if="active === 'hosts'" @open-keychain="active = 'keychain'" />
       <KeychainView v-else-if="active === 'keychain'" />
       <SnippetsView v-else-if="active === 'snippets'" />
       <LogsView v-else-if="active === 'logs'" />
