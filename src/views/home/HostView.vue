@@ -44,8 +44,12 @@ const remove = (host: IHost) => {
 };
 
 const connect = (host: IHost) => {
-  tabs.openSession(host);
-  router.push(`/session/${host.id}`);
+  // 理论上 store 加载时已补齐；这里再兜一层，避免空 id 导致路由匹配失败
+  const withId = host.id ? host : { ...host, id: `host-${Date.now()}` };
+  if (!host.id) system.setHosts(system.hosts.map((item) => (item === host ? withId : item)));
+
+  const tab = tabs.openTerminal(withId);
+  router.push(`/terminal/${tab.hostId}`);
 };
 </script>
 

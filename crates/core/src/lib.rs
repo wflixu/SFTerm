@@ -15,7 +15,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
@@ -276,6 +276,172 @@ impl Manager {
             .map(|map| map.keys().cloned().collect())
             .unwrap_or_default()
     }
+}
+
+/// 终端会话的命令通道。
+pub enum ShellCommand {
+    Write(Vec<u8>),
+    Resize(u32, u32),
+    Close,
+}
+
+/// 可以被前端写入 / 调整大小的终端句柄。
+pub struct ShellHandle {
+    tx: Sender<ShellCommand>,
+}
+
+impl ShellHandle {
+    pub fn write(&self, bytes: Vec<u8>) -> Result<(), String> {
+        self.tx
+            .send(ShellCommand::Write(bytes))
+            .map_err(|_| "终端已关闭".to_string())
+    }
+
+    pub fn resize(&self, cols: u32, rows: u32) -> Result<(), String> {
+        self.tx
+            .send(ShellCommand::Resize(cols, rows))
+            .map_err(|_| "终端已关闭".to_string())
+    }
+
+    pub fn close(&self) {
+        let _ = self.tx.send(ShellCommand::Close);
+    }
+}
+
+/// 打开一个交互式 shell。输出通过回调以字节块的形式推送。
+///
+/// 终端使用**独立的 SSH 会话**：libssh2 的阻塞读会锁住整个会话，
+/// 若与 SFTP 共用一个连接，终端一读就会卡住文件操作。
+pub fn open_shell<F>(
+    params: ConnectParams,
+    cols: u32,
+    rows: u32,
+    on_output: F,
+) -> Result<ShellHandle, String>
+where
+    F: FnMut(&[u8]) + Send + 'static,
+{
+    let session = connect_raw(params)?;
+    let (tx, rx) = mpsc::channel();
+    thread::Builder::new()
+        .name("sfterm-shell".to_string())
+        .spawn(move || shell_loop(session, cols, rows, rx, on_output))
+        .map_err(|e| format!("启动终端线程失败：{e}"))?;
+    Ok(ShellHandle { tx })
+}
+
+fn shell_loop<F>(session: Session, cols: u32, rows: u32, rx: Receiver<ShellCommand>, mut on_output: F)
+where
+    F: FnMut(&[u8]),
+{
+    // 建通道 / 申请 PTY / 启动 shell 必须在阻塞模式下完成，
+    // 之后再切非阻塞，否则这些调用会直接返回 WouldBlock。
+    let mut channel = match session.channel_session() {
+        Ok(channel) => channel,
+        Err(_) => return,
+    };
+    if channel
+        .request_pty("xterm-256color", None, Some((cols, rows, 0, 0)))
+        .is_err()
+    {
+        return;
+    }
+    if channel.shell().is_err() {
+        return;
+    }
+
+    session.set_blocking(false);
+
+    let mut pending: Vec<u8> = Vec::new();
+    let mut resize: Option<(u32, u32)> = None;
+    let mut buf = [0u8; 8192];
+    let mut closing = false;
+
+    loop {
+        loop {
+            match rx.try_recv() {
+                Ok(ShellCommand::Write(bytes)) => pending.extend_from_slice(&bytes),
+                Ok(ShellCommand::Resize(c, r)) => resize = Some((c, r)),
+                Ok(ShellCommand::Close) => {
+                    closing = true;
+                    break;
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    closing = true;
+                    break;
+                }
+            }
+        }
+        if closing {
+            break;
+        }
+
+        if let Some((c, r)) = resize.take() {
+            let _ = channel.request_pty_size(c, r, Some(0), Some(0));
+        }
+
+        if !pending.is_empty() {
+            match channel.write(&pending) {
+                Ok(n) => {
+                    pending.drain(..n);
+                    let _ = channel.flush();
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(_) => break,
+            }
+        }
+
+        match channel.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => on_output(&buf[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(_) => break,
+        }
+
+        thread::sleep(Duration::from_millis(5));
+    }
+
+    let _ = channel.send_eof();
+    let _ = channel.wait_close();
+}
+
+/// 只建立连接、握手、认证，不启动 SFTP 工作线程。
+fn connect_raw(params: ConnectParams) -> Result<Session, String> {
+    let addr = format!("{}:{}", params.host, params.port);
+    let socket_addr = addr
+        .to_socket_addrs()
+        .map_err(|e| format!("解析地址失败：{e}"))?
+        .next()
+        .ok_or_else(|| format!("解析不到地址：{addr}"))?;
+
+    let tcp = TcpStream::connect_timeout(&socket_addr, CONNECT_TIMEOUT)
+        .map_err(|e| format!("TCP 连接失败：{e}"))?;
+    tcp.set_read_timeout(Some(CONNECT_TIMEOUT)).ok();
+    tcp.set_write_timeout(Some(CONNECT_TIMEOUT)).ok();
+
+    let mut session = Session::new().map_err(|e| format!("创建 SSH 会话失败：{e}"))?;
+    session.set_tcp_stream(tcp);
+    session.set_timeout(IO_TIMEOUT_MS);
+    session
+        .handshake()
+        .map_err(|e| format!("SSH 握手失败：{e}"))?;
+
+    match &params.auth {
+        AuthMethod::Password { password } => session
+            .userauth_password(&params.username, password)
+            .map_err(|e| format!("密码认证失败：{e}"))?,
+        AuthMethod::Key { path, passphrase } => session
+            .userauth_pubkey_file(&params.username, None, Path::new(path), passphrase.as_deref())
+            .map_err(|e| format!("密钥认证失败：{e}"))?,
+    }
+
+    if !session.authenticated() {
+        return Err("认证未通过".to_string());
+    }
+
+    session.set_keepalive(true, KEEPALIVE_SECS);
+    Ok(session)
 }
 
 fn open_session(params: ConnectParams, id: String) -> Result<(SessionHandle, ConnectInfo), String> {

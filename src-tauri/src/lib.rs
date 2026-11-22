@@ -7,6 +7,7 @@ use std::sync::Arc;
 pub fn run() {
     tauri::Builder::default()
         .manage(Arc::new(Manager::new()))
+        .manage(Arc::new(cmds::Shells::default()))
         .setup(|app| {
             if cfg!(debug_assertions) {
                 // 日志插件只是开发便利，初始化失败（例如受限环境没有写权限）
@@ -34,6 +35,10 @@ pub fn run() {
             cmds::fs_list_local,
             cmds::fs_home,
             cmds::ssh_disconnect,
+            cmds::shell_open,
+            cmds::shell_write,
+            cmds::shell_resize,
+            cmds::shell_close,
             cmds::ssh_sessions,
         ])
         .run(tauri::generate_context!())

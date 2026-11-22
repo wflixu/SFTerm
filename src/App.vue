@@ -1,32 +1,56 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue';
+import { computed, onErrorCaptured, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useTabsStore } from '@/stores/tabs';
 import { useTransfersStore } from '@/stores/transfers';
+import { useTerminalsStore } from '@/stores/terminals';
 
 const route = useRoute();
 const router = useRouter();
 const tabs = useTabsStore();
 const transfers = useTransfersStore();
+const terminals = useTerminalsStore();
+const renderError = ref('');
 
-let unlisten: UnlistenFn | null = null;
+onErrorCaptured((error) => {
+  renderError.value = String(error);
+  console.error('[app] 页面渲染失败', error);
+  return false;
+});
+
+let unlistenTransfer: UnlistenFn | null = null;
+let unlistenShell: UnlistenFn | null = null;
 onMounted(async () => {
-  unlisten = await listen<{ id: string; done: number; total: number }>('transfer-progress', (event) => {
+  unlistenTransfer = await listen<{ id: string; done: number; total: number }>('transfer-progress', (event) => {
     transfers.update(event.payload.id, event.payload.done, event.payload.total);
   });
+  unlistenShell = await listen<{ id: string; data: string }>('shell-output', (event) => {
+    terminals.receive(event.payload.id, event.payload.data);
+  });
 });
-onUnmounted(() => unlisten?.());
+onUnmounted(() => {
+  unlistenTransfer?.();
+  unlistenShell?.();
+});
 
 const isHome = computed(() => route.path === '/');
 const isSftp = computed(() => route.path.startsWith('/sftp'));
+const isTerminal = computed(() => route.path.startsWith('/terminal'));
 const activeHostId = computed(() => (route.params.hostId as string) ?? '');
 
-const open = (hostId: string) => router.push(`/session/${hostId}`);
+const open = (tab: { hostId: string }) => {
+  router.push(`/terminal/${tab.hostId}`);
+};
+
+const isActive = (tab: { hostId: string }) =>
+  isTerminal.value && activeHostId.value === tab.hostId;
 
 const close = (id: string) => {
+  const tab = tabs.sessions.find((item) => item.id === id);
   tabs.closeSession(id);
-  if (route.path === `/session/${id}`) router.push('/');
+  terminals.close(id);
+  if (tab && isActive(tab)) router.push('/');
 };
 </script>
 
@@ -47,16 +71,21 @@ const close = (id: string) => {
         v-for="tab in tabs.sessions"
         :key="tab.id"
         class="tab session"
-        :class="{ active: activeHostId === tab.hostId }"
-        @click="open(tab.hostId)"
+        :class="{ active: isActive(tab) }"
+        @click="open(tab)"
       >
-        <i class="pi pi-server" />
+        <i class="pi pi-desktop" />
         <span class="label">{{ tab.title }}</span>
         <i class="pi pi-times close" @click.stop="close(tab.id)" />
       </button>
     </header>
     <main class="content">
-      <RouterView />
+      <div v-if="renderError" class="render-error">
+        <h3>页面加载失败</h3>
+        <pre>{{ renderError }}</pre>
+        <button @click="renderError = ''; $router.go(0)">重新加载</button>
+      </div>
+      <RouterView v-else />
     </main>
   </div>
 </template>
@@ -145,5 +174,33 @@ const close = (id: string) => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+.render-error {
+  padding: 32px;
+  color: #b42318;
+}
+
+.render-error h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.render-error pre {
+  white-space: pre-wrap;
+  font-size: 12px;
+  color: #6b7280;
+  background: #fdf2f0;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.render-error button {
+  margin-top: 12px;
+  padding: 6px 14px;
+  border: 1px solid #d6dae0;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
 }
 </style>

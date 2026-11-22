@@ -24,6 +24,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     'request-host': [];
+    'open-terminal': [];
 }>();
 
 const transfers = useTransfersStore();
@@ -498,6 +499,14 @@ onBeforeUnmount(() => {
             <div class="ops">
                 <Button v-if="!info" label="连接" size="small" :loading="connecting" @click="connect" />
                 <Button v-else label="断开" size="small" severity="secondary" text @click="disconnect" />
+                <Button
+                    v-if="host"
+                    label="终端"
+                    size="small"
+                    text
+                    icon="pi pi-desktop"
+                    @click="emit('open-terminal')"
+                />
                 <Button
                     v-if="canPickHost"
                     label="切换主机"

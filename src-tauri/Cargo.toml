@@ -25,3 +25,4 @@ tauri = { version = "2.12", features = [] }
 tauri-plugin-log = "2.10"
 ssh2 = "0.9.5"
 sfterm-core = { path = "../crates/core" }
+base64 = "0.22"

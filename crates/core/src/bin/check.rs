@@ -19,6 +19,7 @@ struct Args {
     mkdir: Option<String>,
     rename: Option<(String, String)>,
     remove: Option<(String, bool)>,
+    shell_cmd: Option<String>,
 }
 
 fn parse() -> Result<Args, String> {
@@ -39,6 +40,7 @@ fn parse() -> Result<Args, String> {
     let mut rename_to: Option<String> = None;
     let mut remove_path: Option<String> = None;
     let mut remove_is_dir = false;
+    let mut shell_cmd: Option<String> = None;
 
     let mut it = env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -60,6 +62,7 @@ fn parse() -> Result<Args, String> {
             "--to" => rename_to = Some(value()?),
             "--rm" => remove_path = Some(value()?),
             "--rm-dir" => remove_is_dir = true,
+            "--shell" => shell_cmd = Some(value()?),
             "--limit" => limit = value()?.parse().map_err(|_| "--limit 需要数字")?,
             other => return Err(format!("未知参数：{other}")),
         }
@@ -79,6 +82,7 @@ fn parse() -> Result<Args, String> {
         mkdir,
         rename: rename_from.zip(rename_to),
         remove: remove_path.map(|path| (path, remove_is_dir)),
+        shell_cmd,
     })
 }
 
@@ -108,14 +112,16 @@ fn run() -> Result<(), String> {
         return Err("需要 --key 或 --password".to_string());
     };
 
+    let params = ConnectParams {
+        host: args.host.clone(),
+        port: args.port,
+        username: args.user.clone(),
+        auth,
+    };
+
     let manager = Manager::new();
     let started = std::time::Instant::now();
-    let info = manager.connect(ConnectParams {
-        host: args.host,
-        port: args.port,
-        username: args.user,
-        auth,
-    })?;
+    let info = manager.connect(params.clone())?;
 
     println!("✓ 已连接（{:?}）", started.elapsed());
     println!("  session   {}", info.session_id);
@@ -218,6 +224,28 @@ fn run() -> Result<(), String> {
     if let Some((path, is_dir)) = &args.remove {
         manager.remove(&info.session_id, path.clone(), *is_dir)?;
         println!("✓ 已删除 {path}");
+    }
+
+    if let Some(command) = &args.shell_cmd {
+        let (tx, rx) = mpsc::channel::<Vec<u8>>();
+        let handle = sfterm_core::open_shell(params.clone(), 100, 30, move |bytes| {
+            let _ = tx.send(bytes.to_vec());
+        })?;
+
+        std::thread::sleep(std::time::Duration::from_millis(900));
+        handle.write(format!("{command}\r").into_bytes())?;
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
+        let mut output = Vec::new();
+        while std::time::Instant::now() < deadline {
+            match rx.recv_timeout(std::time::Duration::from_millis(200)) {
+                Ok(chunk) => output.extend_from_slice(&chunk),
+                Err(_) => {}
+            }
+        }
+
+        handle.close();
+        println!("\n--- shell 输出 ---\n{}\n--- 结束 ---", String::from_utf8_lossy(&output));
     }
 
     manager.disconnect(&info.session_id);
