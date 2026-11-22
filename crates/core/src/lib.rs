@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 use ssh2::{HashType, MethodType, Session};
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
@@ -70,6 +71,12 @@ pub struct RemoteEntry {
     pub mtime: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct TransferProgress {
+    pub done: u64,
+    pub total: u64,
+}
+
 enum Request {
     ListDir {
         path: String,
@@ -77,6 +84,34 @@ enum Request {
     },
     RealPath {
         reply: Sender<Result<String, String>>,
+    },
+    Upload {
+        local: String,
+        remote: String,
+        overwrite: bool,
+        progress: Sender<TransferProgress>,
+        reply: Sender<Result<(), String>>,
+    },
+    Download {
+        remote: String,
+        local: String,
+        overwrite: bool,
+        progress: Sender<TransferProgress>,
+        reply: Sender<Result<(), String>>,
+    },
+    Mkdir {
+        path: String,
+        reply: Sender<Result<(), String>>,
+    },
+    Rename {
+        from: String,
+        to: String,
+        reply: Sender<Result<(), String>>,
+    },
+    Remove {
+        path: String,
+        is_dir: bool,
+        reply: Sender<Result<(), String>>,
     },
 }
 
@@ -146,6 +181,84 @@ impl Manager {
 
         let (reply_tx, reply_rx) = mpsc::channel();
         tx.send(Request::RealPath { reply: reply_tx })
+            .map_err(|_| "会话已关闭".to_string())?;
+        reply_rx.recv().map_err(|_| "会话已关闭".to_string())?
+    }
+
+    /// 上传本地文件到远端。阻塞，进度通过 `progress` 回传。
+    pub fn upload(
+        &self,
+        session_id: &str,
+        local: String,
+        remote: String,
+        overwrite: bool,
+        progress: Sender<TransferProgress>,
+    ) -> Result<(), String> {
+        self.transfer(session_id, |reply| Request::Upload {
+            local,
+            remote,
+            overwrite,
+            progress,
+            reply,
+        })
+    }
+
+    /// 从远端下载文件到本地。阻塞，进度通过 `progress` 回传。
+    pub fn download(
+        &self,
+        session_id: &str,
+        remote: String,
+        local: String,
+        overwrite: bool,
+        progress: Sender<TransferProgress>,
+    ) -> Result<(), String> {
+        self.transfer(session_id, |reply| Request::Download {
+            remote,
+            local,
+            overwrite,
+            progress,
+            reply,
+        })
+    }
+
+    /// 新建远端目录。
+    pub fn mkdir(&self, session_id: &str, path: String) -> Result<(), String> {
+        self.transfer(session_id, |reply| Request::Mkdir { path, reply })
+    }
+
+    /// 重命名 / 移动远端文件。
+    pub fn rename(&self, session_id: &str, from: String, to: String) -> Result<(), String> {
+        self.transfer(session_id, |reply| Request::Rename { from, to, reply })
+    }
+
+    /// 删除远端文件或目录（目录递归删除）。
+    pub fn remove(&self, session_id: &str, path: String, is_dir: bool) -> Result<(), String> {
+        self.transfer(session_id, |reply| Request::Remove {
+            path,
+            is_dir,
+            reply,
+        })
+    }
+
+    fn transfer(
+        &self,
+        session_id: &str,
+        build: impl FnOnce(Sender<Result<(), String>>) -> Request,
+    ) -> Result<(), String> {
+        let tx = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|_| "会话表被污染".to_string())?;
+            sessions
+                .get(session_id)
+                .ok_or_else(|| format!("会话不存在：{session_id}"))?
+                .tx
+                .clone()
+        };
+
+        let (reply_tx, reply_rx) = mpsc::channel();
+        tx.send(build(reply_tx))
             .map_err(|_| "会话已关闭".to_string())?;
         reply_rx.recv().map_err(|_| "会话已关闭".to_string())?
     }
@@ -242,6 +355,13 @@ fn worker(session: Session, rx: mpsc::Receiver<Request>) {
                     Request::RealPath { reply } => {
                         let _ = reply.send(Err(message.clone()));
                     }
+                    Request::Upload { reply, .. }
+                    | Request::Download { reply, .. }
+                    | Request::Mkdir { reply, .. }
+                    | Request::Rename { reply, .. }
+                    | Request::Remove { reply, .. } => {
+                        let _ = reply.send(Err(message.clone()));
+                    }
                 }
             }
             return;
@@ -260,8 +380,69 @@ fn worker(session: Session, rx: mpsc::Receiver<Request>) {
                     .map_err(|e| format!("获取远端主目录失败：{e}"));
                 let _ = reply.send(result);
             }
+            Request::Mkdir { path, reply } => {
+                let result = sftp
+                    .mkdir(Path::new(&path), 0o755)
+                    .map_err(|e| format!("新建文件夹失败：{e}"));
+                let _ = reply.send(result);
+            }
+            Request::Rename { from, to, reply } => {
+                let result = sftp
+                    .rename(Path::new(&from), Path::new(&to), None)
+                    .map_err(|e| format!("重命名失败：{e}"));
+                let _ = reply.send(result);
+            }
+            Request::Remove {
+                path,
+                is_dir,
+                reply,
+            } => {
+                let result = remove_remote(&sftp, &path, is_dir);
+                let _ = reply.send(result);
+            }
+            Request::Upload {
+                local,
+                remote,
+                overwrite,
+                progress,
+                reply,
+            } => {
+                let result = upload_file(&sftp, &local, &remote, overwrite, &progress);
+                let _ = reply.send(result);
+            }
+            Request::Download {
+                remote,
+                local,
+                overwrite,
+                progress,
+                reply,
+            } => {
+                let result = download_file(&sftp, &remote, &local, overwrite, &progress);
+                let _ = reply.send(result);
+            }
         }
     }
+}
+
+/// 删除远端文件或目录（目录会递归删除）。
+fn remove_remote(sftp: &ssh2::Sftp, path: &str, is_dir: bool) -> Result<(), String> {
+    if !is_dir {
+        return sftp
+            .unlink(Path::new(path))
+            .map_err(|e| format!("删除文件失败：{e}"));
+    }
+
+    let entries = sftp
+        .readdir(Path::new(path))
+        .map_err(|e| format!("读取目录失败：{e}"))?;
+
+    for (entry_path, stat) in entries {
+        let child_is_dir = stat.is_dir() && !stat.file_type().is_symlink();
+        remove_remote(sftp, entry_path.to_string_lossy().as_ref(), child_is_dir)?;
+    }
+
+    sftp.rmdir(Path::new(path))
+        .map_err(|e| format!("删除目录失败：{e}"))
 }
 
 /// 本地目录列表。与远端使用同一份 `RemoteEntry`，前端可以复用同一个列表组件。
@@ -312,6 +493,105 @@ pub fn list_local(path: &str) -> Result<Vec<RemoteEntry>, String> {
 /// 当前用户主目录，供前端做本地栏的默认起点。
 pub fn home_dir() -> String {
     std::env::var("HOME").unwrap_or_else(|_| "/".to_string())
+}
+
+const CHUNK: usize = 32 * 1024;
+/// 每 256KB 汇报一次进度，避免事件过于密集。
+const PROGRESS_EVERY: u64 = 256 * 1024;
+
+fn upload_file(
+    sftp: &ssh2::Sftp,
+    local: &str,
+    remote: &str,
+    overwrite: bool,
+    progress: &Sender<TransferProgress>,
+) -> Result<(), String> {
+    let mut src = std::fs::File::open(local).map_err(|e| format!("打开本地文件失败：{e}"))?;
+    let total = src.metadata().map(|m| m.len()).unwrap_or(0);
+
+    let exists = sftp.stat(Path::new(remote)).is_ok();
+    if exists && !overwrite {
+        return Err("目标文件已存在".to_string());
+    }
+
+    let mut dst = sftp
+        .create(Path::new(remote))
+        .map_err(|e| format!("创建远端文件失败：{e}"))?;
+
+    let mut buf = vec![0u8; CHUNK];
+    let mut done = 0u64;
+    let mut last_reported = 0u64;
+
+    loop {
+        let n = src
+            .read(&mut buf)
+            .map_err(|e| format!("读本地文件失败：{e}"))?;
+        if n == 0 {
+            break;
+        }
+        dst.write_all(&buf[..n])
+            .map_err(|e| format!("写远端文件失败：{e}"))?;
+        done += n as u64;
+
+        if done - last_reported >= PROGRESS_EVERY || done == total {
+            last_reported = done;
+            let _ = progress.send(TransferProgress { done, total });
+        }
+    }
+
+    dst.close().map_err(|e| format!("关闭远端文件失败：{e}"))?;
+    let _ = progress.send(TransferProgress { done, total });
+    Ok(())
+}
+
+fn download_file(
+    sftp: &ssh2::Sftp,
+    remote: &str,
+    local: &str,
+    overwrite: bool,
+    progress: &Sender<TransferProgress>,
+) -> Result<(), String> {
+    if Path::new(local).exists() && !overwrite {
+        return Err("本地文件已存在".to_string());
+    }
+
+    let mut src = sftp
+        .open(Path::new(remote))
+        .map_err(|e| format!("打开远端文件失败：{e}"))?;
+    let total = sftp
+        .stat(Path::new(remote))
+        .ok()
+        .and_then(|stat| stat.size)
+        .unwrap_or(0);
+
+    if let Some(parent) = Path::new(local).parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("创建本地目录失败：{e}"))?;
+    }
+    let mut dst = std::fs::File::create(local).map_err(|e| format!("创建本地文件失败：{e}"))?;
+
+    let mut buf = vec![0u8; CHUNK];
+    let mut done = 0u64;
+    let mut last_reported = 0u64;
+
+    loop {
+        let n = src
+            .read(&mut buf)
+            .map_err(|e| format!("读远端文件失败：{e}"))?;
+        if n == 0 {
+            break;
+        }
+        dst.write_all(&buf[..n])
+            .map_err(|e| format!("写本地文件失败：{e}"))?;
+        done += n as u64;
+
+        if done - last_reported >= PROGRESS_EVERY || done == total {
+            last_reported = done;
+            let _ = progress.send(TransferProgress { done, total });
+        }
+    }
+
+    let _ = progress.send(TransferProgress { done, total });
+    Ok(())
 }
 
 fn list_dir(sftp: &ssh2::Sftp, path: &str) -> Result<Vec<RemoteEntry>, String> {

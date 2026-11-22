@@ -9,12 +9,15 @@ const props = defineProps<{
     entries: FileEntry[];
     loading?: boolean;
     emptyText?: string;
+    writable?: boolean;
 }>();
 
 const emit = defineEmits<{
     navigate: [path: string];
     open: [entry: FileEntry];
     refresh: [];
+    'context-menu': [entry: FileEntry, event: MouseEvent];
+    'new-folder': [];
 }>();
 
 const input = ref(props.path);
@@ -75,6 +78,9 @@ const iconFor = (entry: FileEntry) => {
                 <span>{{ label }}</span>
             </div>
             <div class="ops">
+                <button v-if="writable" class="icon-btn" title="新建文件夹" @click="emit('new-folder')">
+                    <i class="pi pi-folder-plus" />
+                </button>
                 <button class="icon-btn" title="上级" @click="up"><i class="pi pi-arrow-up" /></button>
                 <button class="icon-btn" title="刷新" @click="emit('refresh')"><i class="pi pi-refresh" /></button>
             </div>
@@ -98,6 +104,7 @@ const iconFor = (entry: FileEntry) => {
                 :class="{ selected: selected === entry.path }"
                 @click="selected = entry.path"
                 @dblclick="onOpen(entry)"
+                @contextmenu.prevent="emit('context-menu', entry, $event)"
             >
                 <span class="col-name">
                     <i class="pi" :class="iconFor(entry)" />

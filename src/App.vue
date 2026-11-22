@@ -1,11 +1,22 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useTabsStore } from '@/stores/tabs';
+import { useTransfersStore } from '@/stores/transfers';
 
 const route = useRoute();
 const router = useRouter();
 const tabs = useTabsStore();
+const transfers = useTransfersStore();
+
+let unlisten: UnlistenFn | null = null;
+onMounted(async () => {
+  unlisten = await listen<{ id: string; done: number; total: number }>('transfer-progress', (event) => {
+    transfers.update(event.payload.id, event.payload.done, event.payload.total);
+  });
+});
+onUnmounted(() => unlisten?.());
 
 const isHome = computed(() => route.path === '/');
 const isSftp = computed(() => route.path.startsWith('/sftp'));

@@ -1,8 +1,9 @@
 //! 引擎自检：不经过 Tauri，直接跑通 connect → auth → sftp → list_dir。
 
-use sfterm_core::{AuthMethod, ConnectParams, Manager};
+use sfterm_core::{AuthMethod, ConnectParams, Manager, TransferProgress};
 use std::env;
 use std::process::ExitCode;
+use std::sync::mpsc;
 
 struct Args {
     host: String,
@@ -13,6 +14,11 @@ struct Args {
     passphrase: Option<String>,
     path: String,
     limit: usize,
+    upload: Option<(String, String)>,
+    download: Option<(String, String)>,
+    mkdir: Option<String>,
+    rename: Option<(String, String)>,
+    remove: Option<(String, bool)>,
 }
 
 fn parse() -> Result<Args, String> {
@@ -24,6 +30,15 @@ fn parse() -> Result<Args, String> {
     let mut passphrase = None;
     let mut path = "/".to_string();
     let mut limit = 20usize;
+    let mut upload_local: Option<String> = None;
+    let mut upload_remote: Option<String> = None;
+    let mut download_remote: Option<String> = None;
+    let mut download_local: Option<String> = None;
+    let mut mkdir: Option<String> = None;
+    let mut rename_from: Option<String> = None;
+    let mut rename_to: Option<String> = None;
+    let mut remove_path: Option<String> = None;
+    let mut remove_is_dir = false;
 
     let mut it = env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -36,6 +51,15 @@ fn parse() -> Result<Args, String> {
             "--key" => key = Some(value()?),
             "--passphrase" => passphrase = Some(value()?),
             "--path" => path = value()?,
+            "--upload" => upload_local = Some(value()?),
+            "--remote" => upload_remote = Some(value()?),
+            "--download" => download_remote = Some(value()?),
+            "--local" => download_local = Some(value()?),
+            "--mkdir" => mkdir = Some(value()?),
+            "--mv" => rename_from = Some(value()?),
+            "--to" => rename_to = Some(value()?),
+            "--rm" => remove_path = Some(value()?),
+            "--rm-dir" => remove_is_dir = true,
             "--limit" => limit = value()?.parse().map_err(|_| "--limit 需要数字")?,
             other => return Err(format!("未知参数：{other}")),
         }
@@ -50,6 +74,11 @@ fn parse() -> Result<Args, String> {
         passphrase,
         path,
         limit,
+        upload: upload_local.zip(upload_remote),
+        download: download_remote.zip(download_local),
+        mkdir,
+        rename: rename_from.zip(rename_to),
+        remove: remove_path.map(|path| (path, remove_is_dir)),
     })
 }
 
@@ -126,6 +155,69 @@ fn run() -> Result<(), String> {
             },
             entry.name
         );
+    }
+
+    if let Some((local, remote)) = &args.upload {
+        let (progress_tx, progress_rx) = mpsc::channel::<TransferProgress>();
+        let printer = std::thread::spawn(move || {
+            for progress in progress_rx {
+                if progress.total > 0 {
+                    println!(
+                        "  上传 {}%",
+                        (progress.done as f64 / progress.total as f64 * 100.0) as u32
+                    );
+                }
+            }
+        });
+        let started = std::time::Instant::now();
+        manager.upload(
+            &info.session_id,
+            local.clone(),
+            remote.clone(),
+            true,
+            progress_tx,
+        )?;
+        printer.join().ok();
+        println!("✓ 上传完成（{:?}）", started.elapsed());
+    }
+
+    if let Some((remote, local)) = &args.download {
+        let (progress_tx, progress_rx) = mpsc::channel::<TransferProgress>();
+        let printer = std::thread::spawn(move || {
+            for progress in progress_rx {
+                if progress.total > 0 {
+                    println!(
+                        "  下载 {}%",
+                        (progress.done as f64 / progress.total as f64 * 100.0) as u32
+                    );
+                }
+            }
+        });
+        let started = std::time::Instant::now();
+        manager.download(
+            &info.session_id,
+            remote.clone(),
+            local.clone(),
+            true,
+            progress_tx,
+        )?;
+        printer.join().ok();
+        println!("✓ 下载完成（{:?}）", started.elapsed());
+    }
+
+    if let Some(path) = &args.mkdir {
+        manager.mkdir(&info.session_id, path.clone())?;
+        println!("✓ 已创建目录 {path}");
+    }
+
+    if let Some((from, to)) = &args.rename {
+        manager.rename(&info.session_id, from.clone(), to.clone())?;
+        println!("✓ 已重命名 {from} -> {to}");
+    }
+
+    if let Some((path, is_dir)) = &args.remove {
+        manager.remove(&info.session_id, path.clone(), *is_dir)?;
+        println!("✓ 已删除 {path}");
     }
 
     manager.disconnect(&info.session_id);
