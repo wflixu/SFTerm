@@ -27,7 +27,7 @@ ADR-001 决定把项目改写为 macOS 原生 Swift 应用（libghostty + Citade
 | UI | Vue 3 + TypeScript + PrimeVue 4（Aura）+ Pinia |
 | 终端 | xterm.js 5 + addon-fit |
 | SSH / SFTP | Rust `ssh2`（libssh2），经 Tauri command + event 暴露 |
-| 存储 | 主机/设置 → SQLite（或过渡期 JSON）；密钥与口令 → Keychain |
+| 存储 | 主机/设置 → SQLite（或过渡期 JSON）；密钥与口令 → Keychain（**0.1.0 仍在 localStorage，未迁移**） |
 
 ## 3. 理由
 
@@ -65,3 +65,16 @@ ADR-001 决定把项目改写为 macOS 原生 Swift 应用（libghostty + Citade
 - **命令层薄**：`connect / open_sftp / list_dir / upload / download / open_shell / resize` 等少量命令 + 事件流。
 - **凭据**：密码与私钥口令存 Keychain（`security-framework` crate 或 Tauri stronghold），不落 JSON。
 - **传输引擎独立于 UI**：队列、并发、断点在 Rust 侧实现，UI 只订阅进度事件。
+
+## 7. 落地记录（0.1.0）
+
+实际实现与上面几条预设存在偏差，细节见 [architecture.md](architecture.md)：
+
+| 预设 | 实际做法 | 原因 |
+|---|---|---|
+| 一个 TCP 连接挂多个 channel（shell + sftp） | **每个终端单独一条 SSH 会话**，SFTP 单独一条 | libssh2 的阻塞读会锁住整个会话，终端一读就卡死文件操作 |
+| 二进制走 `tauri::ipc::Channel` 或自定义协议 | 走事件 + **base64**（`shell-output`） | 实现成本最低；代价是大输出时 CPU / 内存翻倍，等终端调用频繁了再换 |
+| 队列 / 并发 / 断点在 Rust 侧 | 队列在前端 `transfers` store，Rust 只负责单文件传输与进度 | 先跑通交互；暂停、取消、断点续传需要引擎侧改造 |
+| 凭据存 Keychain | 仍存 localStorage | 迁移依赖 SQLite 存储层，排在交互稳定之后 |
+
+`crates/core` 被拆成独立 crate，可脱离 Tauri 用 `engine-check` CLI 直接验证连通性和传输，这一点是原计划外的收益。

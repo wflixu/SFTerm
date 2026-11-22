@@ -1,6 +1,6 @@
 <template>
   <div class="placeholder">
-    <div class="icon"><i class="pi pi-terminal" /></div>
+    <div class="icon"><i class="pi pi-code" /></div>
     <h3>Snippets</h3>
     <p>常用命令片段，一期暂不提供。</p>
   </div>

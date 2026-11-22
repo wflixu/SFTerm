@@ -15,7 +15,7 @@ const active = ref('hosts');
 const items = computed(() => [
   { id: 'hosts', label: 'Hosts', icon: 'pi-server', count: system.hosts.length },
   { id: 'keychain', label: 'Keychain', icon: 'pi-key', count: keychain.entries.length },
-  { id: 'snippets', label: 'Snippets', icon: 'pi-terminal', count: 0 },
+  { id: 'snippets', label: 'Snippets', icon: 'pi-code', count: 0 },
   { id: 'logs', label: 'Logs', icon: 'pi-list', count: 0 },
 ]);
 </script>
