@@ -1,7 +1,9 @@
 import type { App } from 'vue';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
+import Select from 'primevue/select';
 import Dialog from 'primevue/dialog';
+import ConfirmDialog from 'primevue/confirmdialog';
 import Tabs from 'primevue/tabs';
 import TabList from 'primevue/tablist';
 import Tab from 'primevue/tab';
@@ -19,7 +21,9 @@ export default {
     install(app: App) {
         app.component('Button', Button);
         app.component('InputText', InputText);
+        app.component('Select', Select);
         app.component('Dialog', Dialog);
+        app.component('ConfirmDialog', ConfirmDialog);
         app.component('Tabs', Tabs);
         app.component('TabList', TabList);
         app.component('Tab', Tab);

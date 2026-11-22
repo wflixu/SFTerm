@@ -1,56 +1,162 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { useKeychainStore } from '@/stores/keychain';
+import { useSystemStore } from '@/stores/system';
+import { useConfirm } from 'primevue/useconfirm';
+import { keyTypeOf } from '@/lib/keytype';
+import {
+    keyPassphraseAccount,
+    keyPrivateAccount,
+    secretDelete,
+    secretGet,
+    secretSet,
+} from '@/lib/secrets';
 import type { IKeyEntry } from '@/shared/interface';
 
 const store = useKeychainStore();
+const system = useSystemStore();
+const ask = useConfirm();
 
 const dialogOpen = ref(false);
 const editing = ref<IKeyEntry | null>(null);
-const form = ref({ label: '', privateKey: '', publicKey: '' });
+const form = ref({ label: '', privateKey: '', publicKey: '', passphrase: '' });
+const error = ref('');
 
 const openCreate = () => {
-  editing.value = null;
-  form.value = { label: '', privateKey: '', publicKey: '' };
-  dialogOpen.value = true;
+    editing.value = null;
+    error.value = '';
+    form.value = { label: '', privateKey: '', publicKey: '', passphrase: '' };
+    dialogOpen.value = true;
 };
 
-const openEdit = (entry: IKeyEntry) => {
-  editing.value = entry;
-  form.value = { label: entry.label, privateKey: entry.privateKey, publicKey: entry.publicKey };
-  dialogOpen.value = true;
+const openEdit = async (entry: IKeyEntry) => {
+    editing.value = entry;
+    error.value = '';
+    form.value = { label: entry.label, privateKey: '', publicKey: entry.publicKey, passphrase: '' };
+    dialogOpen.value = true;
+    try {
+        form.value.privateKey = (await secretGet(keyPrivateAccount(entry.id))) ?? '';
+    } catch (e) {
+        error.value = `读取系统钥匙串失败：${e}`;
+    }
 };
 
-const save = () => {
-  if (!form.value.label.trim()) return;
-  if (editing.value) {
-    store.update({ ...editing.value, ...form.value });
-  } else {
-    store.add({ id: `${Date.now()}`, ...form.value });
-  }
-  dialogOpen.value = false;
+const save = async () => {
+    if (!form.value.label.trim()) {
+        error.value = '请填写 Label';
+        return;
+    }
+
+    const type = keyTypeOf(form.value.privateKey);
+    const passphrase = form.value.passphrase;
+    try {
+        if (editing.value) {
+            if (form.value.privateKey) {
+                await secretSet(keyPrivateAccount(editing.value.id), form.value.privateKey);
+            }
+            if (passphrase) {
+                await secretSet(keyPassphraseAccount(editing.value.id), passphrase);
+            }
+            const hasPassphrase = passphrase ? true : editing.value.hasPassphrase;
+            store.update({
+                ...editing.value,
+                label: form.value.label.trim(),
+                publicKey: form.value.publicKey,
+                privateKey: undefined,
+                hasPassphrase,
+                type: type === '未知' ? editing.value.type : type,
+            });
+        } else {
+            if (!form.value.privateKey) {
+                error.value = '请粘贴私钥，或从文件导入';
+                return;
+            }
+            const id = `${Date.now()}`;
+            await secretSet(keyPrivateAccount(id), form.value.privateKey);
+            if (passphrase) await secretSet(keyPassphraseAccount(id), passphrase);
+            store.add({
+                id,
+                label: form.value.label.trim(),
+                publicKey: form.value.publicKey,
+                type,
+                hasPassphrase: Boolean(passphrase),
+            });
+        }
+        error.value = '';
+        dialogOpen.value = false;
+    } catch (e) {
+        error.value = `保存到系统钥匙串失败：${e}`;
+    }
 };
 
 const remove = (entry: IKeyEntry) => {
-  if (confirm(`删除密钥「${entry.label}」？`)) store.remove(entry.id);
+    const users = system.hosts.filter((host) => host.keyId === entry.id);
+    const usage = users.length
+        ? `有 ${users.length} 台主机正在使用它：${users
+              .map((host) => host.name || host.address)
+              .join('、')}。删除后这些主机会连不上。`
+        : '';
+    ask.require({
+        header: '删除密钥',
+        message: `删除密钥「${entry.label}」？${usage}私钥和口令会同时从系统钥匙串移除。`,
+        icon: 'pi pi-exclamation-triangle',
+        rejectProps: { label: '取消', severity: 'secondary', text: true },
+        acceptProps: { label: '删除', severity: 'danger' },
+        accept: async () => {
+            try {
+                await secretDelete(keyPrivateAccount(entry.id));
+                await secretDelete(keyPassphraseAccount(entry.id));
+            } catch (e) {
+                console.error('[keychain] 删除钥匙串条目失败', entry.id, e);
+            }
+            store.remove(entry.id);
+        },
+    });
 };
 
 const importFile = async (event: Event, kind: 'privateKey' | 'publicKey') => {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  if (!file) return;
-  form.value[kind] = await file.text();
-  if (!form.value.label) form.value.label = file.name.replace(/\.pub$/, '');
-  input.value = '';
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    form.value[kind] = await file.text();
+    if (!form.value.label) form.value.label = file.name.replace(/\.pub$/, '');
+    input.value = '';
 };
 
-const typeOf = (entry: IKeyEntry) => {
-  const header = entry.privateKey.split('\n')[0] ?? '';
-  if (header.includes('OPENSSH')) return 'OpenSSH';
-  if (header.includes('RSA')) return 'RSA';
-  if (header.includes('EC')) return 'ECDSA';
-  return '未知';
+const typeOf = (entry: IKeyEntry) => entry.type ?? keyTypeOf(entry.privateKey);
+
+const usage = (entry: IKeyEntry) => system.hosts.filter((host) => host.keyId === entry.id).length;
+
+const clearPassphrase = async () => {
+    if (!editing.value) return;
+    try {
+        await secretDelete(keyPassphraseAccount(editing.value.id));
+        editing.value = { ...editing.value, hasPassphrase: false };
+        form.value.passphrase = '';
+        store.update(editing.value);
+    } catch (e) {
+        error.value = `清除口令失败：${e}`;
+    }
 };
+
+const selected = ref('');
+
+const publicKeyPreview = (publicKey: string) => {
+    const parts = publicKey.trim().split(/\s+/);
+    if (!parts[0]) return '未保存公钥';
+    if (parts.length < 2) return parts[0];
+    const body = parts[1];
+    const short = body.length > 18 ? `${body.slice(0, 12)}…${body.slice(-4)}` : body;
+    return `${parts[0]} ${short}`;
+};
+
+// 关闭对话框后不把私钥文本留在内存里。
+watch(dialogOpen, (open) => {
+    if (!open) {
+        form.value.privateKey = '';
+        form.value.passphrase = '';
+    }
+});
 </script>
 
 <template>
@@ -63,16 +169,33 @@ const typeOf = (entry: IKeyEntry) => {
       <Button label="新建密钥" icon="pi pi-plus" size="small" @click="openCreate" />
     </header>
 
-    <div v-if="store.entries.length" class="list">
-      <div v-for="entry in store.entries" :key="entry.id" class="row">
-        <div class="icon"><i class="pi pi-key" /></div>
-        <div class="info">
-          <div class="label">{{ entry.label }}</div>
-          <div class="meta">{{ typeOf(entry) }}</div>
-        </div>
-        <button class="icon-btn" title="编辑" @click="openEdit(entry)"><i class="pi pi-pen-to-square" /></button>
-        <button class="icon-btn danger" title="删除" @click="remove(entry)"><i class="pi pi-trash" /></button>
-      </div>
+    <div v-if="store.entries.length" class="grid">
+      <article
+        v-for="entry in store.entries"
+        :key="entry.id"
+        class="card"
+        :class="{ selected: selected === entry.id }"
+        @click="selected = entry.id"
+        @dblclick="openEdit(entry)"
+      >
+        <header class="card-head">
+          <div class="icon"><i class="pi pi-key" /></div>
+          <div class="headings">
+            <div class="label">{{ entry.label }}</div>
+            <span class="type">{{ typeOf(entry) }}</span>
+            <span v-if="usage(entry)" class="usage">{{ usage(entry) }} 台主机</span>
+          </div>
+          <div class="actions">
+            <button class="icon-btn" title="编辑" @click.stop="openEdit(entry)">
+              <i class="pi pi-pen-to-square" />
+            </button>
+            <button class="icon-btn danger" title="删除" @click.stop="remove(entry)">
+              <i class="pi pi-trash" />
+            </button>
+          </div>
+        </header>
+        <div class="pub" :title="entry.publicKey">{{ publicKeyPreview(entry.publicKey) }}</div>
+      </article>
     </div>
 
     <div v-else class="empty">
@@ -93,11 +216,23 @@ const typeOf = (entry: IKeyEntry) => {
           <input type="file" @change="importFile($event, 'privateKey')" />
         </div>
         <div class="field">
+          <label>私钥口令（可选）</label>
+          <InputText
+            v-model="form.passphrase"
+            type="password"
+            :placeholder="editing?.hasPassphrase ? '已保存，留空则不修改' : '私钥没有口令就留空'"
+          />
+          <button v-if="editing?.hasPassphrase" type="button" class="link" @click="clearPassphrase">
+            清除已保存的口令
+          </button>
+        </div>
+        <div class="field">
           <label>Public Key</label>
           <textarea v-model="form.publicKey" rows="3" spellcheck="false" placeholder="ssh-ed25519 AAAA..." />
           <input type="file" @change="importFile($event, 'publicKey')" />
         </div>
       </div>
+      <p v-if="error" class="error">{{ error }}</p>
       <template #footer>
         <Button label="取消" severity="secondary" text @click="dialogOpen = false" />
         <Button label="保存" @click="save" />
@@ -140,21 +275,43 @@ const typeOf = (entry: IKeyEntry) => {
   color: #9ca3af;
 }
 
-.list {
-  padding: 12px 16px;
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  align-content: start;
+  gap: 12px;
+  padding: 16px;
   overflow-y: auto;
 }
 
-.row {
+.card {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 8px;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #e3e6ea;
+  border-radius: 10px;
+  background: #fff;
+  cursor: default;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  user-select: none;
 }
 
-.row:hover {
-  background: #fff;
+.card:hover {
+  border-color: #c7d2fe;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+  transform: translateY(-1px);
+}
+
+.card.selected {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px #2563eb;
+}
+
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
 }
 
 .icon {
@@ -163,25 +320,57 @@ const typeOf = (entry: IKeyEntry) => {
   justify-content: center;
   width: 32px;
   height: 32px;
+  flex-shrink: 0;
   border-radius: 8px;
-  background: #f1f4f8;
-  color: #4b5563;
+  /* 和主机卡片的灰色图标区分开：密钥用暖色 */
+  background: #fef3c7;
+  color: #b45309;
 }
 
-.info {
+.headings {
   flex: 1;
   min-width: 0;
 }
 
 .label {
-  font-size: 13px;
-  font-weight: 500;
+  overflow: hidden;
   color: #111827;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.meta {
+.type {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+
+.card:hover .actions,
+.card.selected .actions {
+  opacity: 1;
+}
+
+.pub {
+  overflow: hidden;
+  color: #6b7280;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
-  color: #9ca3af;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .empty {
@@ -271,4 +460,8 @@ const typeOf = (entry: IKeyEntry) => {
 .field input[type='file'] {
   font-size: 12px;
 }
-</style>
+.error {
+    margin: 0;
+    font-size: 12px;
+    color: #dc2626;
+}</style>

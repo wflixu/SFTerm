@@ -6,16 +6,18 @@ import SnippetsView from './SnippetsView.vue';
 import LogsView from './LogsView.vue';
 import { useSystemStore } from '@/stores/system';
 import { useKeychainStore } from '@/stores/keychain';
+import { useSnippetsStore } from '@/stores/snippets';
 
 const system = useSystemStore();
 const keychain = useKeychainStore();
+const snippets = useSnippetsStore();
 
 const active = ref('hosts');
 
 const items = computed(() => [
   { id: 'hosts', label: 'Hosts', icon: 'pi-server', count: system.hosts.length },
   { id: 'keychain', label: 'Keychain', icon: 'pi-key', count: keychain.entries.length },
-  { id: 'snippets', label: 'Snippets', icon: 'pi-code', count: 0 },
+  { id: 'snippets', label: 'Snippets', icon: 'pi-code', count: snippets.entries.length },
   { id: 'logs', label: 'Logs', icon: 'pi-list', count: 0 },
 ]);
 </script>
@@ -39,7 +41,7 @@ const items = computed(() => [
     </aside>
 
     <section class="panel">
-      <HostView v-if="active === 'hosts'" />
+      <HostView v-if="active === 'hosts'" @open-keychain="active = 'keychain'" />
       <KeychainView v-else-if="active === 'keychain'" />
       <SnippetsView v-else-if="active === 'snippets'" />
       <LogsView v-else-if="active === 'logs'" />

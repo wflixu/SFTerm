@@ -176,3 +176,15 @@ Tauri CLI 会拒绝用默认的 `com.tauri.dev` 打包，所以这一项是发�
 - `Swatinem/rust-cache` 命中后，第二次开始主要只剩增量编译，通常能压到 1–2 分钟。
 
 `tauri.conf.json`、`Cargo.toml` 或依赖变更会让缓存失效，那一次会回到冷启动耗时。
+
+## 首次发布记录
+
+2026-11-22 推 `v0.1.0`，Release run #1 成功，从推送 tag 到 Release 上线约 6 分钟（含编译、签名、公证、上传）：
+
+| 产物 | 大小 |
+|---|---|
+| `SFTerm_0.1.0_arm64.dmg` | 5.5 MB |
+| `SFTerm_0.1.0_arm64.app.zip` | 5.4 MB |
+| `SHA256SUMS.txt` | 186 B |
+
+Release：<https://github.com/wflixu/SFTerm/releases/tag/v0.1.0>。job 里 12 个步骤全绿，关键几步是 `Prepare signing and notarization` → `Build, sign and notarize` → `Collect artifacts` → `Verify code signature` → `Publish GitHub Release`。

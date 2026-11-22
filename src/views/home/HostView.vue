@@ -4,12 +4,16 @@ import { useRouter } from 'vue-router';
 import HostCard from './components/HostCard.vue';
 import HostEdit from './components/HostEdit.vue';
 import { useSystemStore } from '@/stores/system';
+import { useConfirm } from 'primevue/useconfirm';
 import { useTabsStore } from '@/stores/tabs';
+import { hostPasswordAccount, secretDelete } from '@/lib/secrets';
 import type { IHost } from '@/shared/interface';
 
 const system = useSystemStore();
 const tabs = useTabsStore();
+const ask = useConfirm();
 const router = useRouter();
+const emit = defineEmits<{ 'open-keychain': [] }>();
 
 const search = ref('');
 const drawerOpen = ref(false);
@@ -39,8 +43,27 @@ const save = (host: IHost) => {
   drawerOpen.value = false;
 };
 
+const openKeychain = () => {
+  drawerOpen.value = false;
+  emit('open-keychain');
+};
+
 const remove = (host: IHost) => {
-  if (confirm(`删除主机「${host.name || host.address}」？`)) system.removeHost(host);
+  ask.require({
+    header: '删除主机',
+    message: `删除主机「${host.name || host.address}」？对应的钥匙串密码也会一起删除。`,
+    icon: 'pi pi-exclamation-triangle',
+    rejectProps: { label: '取消', severity: 'secondary', text: true },
+    acceptProps: { label: '删除', severity: 'danger' },
+    accept: async () => {
+      try {
+        await secretDelete(hostPasswordAccount(host.id));
+      } catch (e) {
+        console.error('[hosts] 清理钥匙串密码失败', host.id, e);
+      }
+      system.removeHost(host);
+    },
+  });
 };
 
 const connect = (host: IHost) => {
@@ -100,6 +123,7 @@ const connect = (host: IHost) => {
           :host="editing"
           @save="save"
           @cancel="drawerOpen = false"
+          @open-keychain="openKeychain"
         />
       </aside>
     </transition>

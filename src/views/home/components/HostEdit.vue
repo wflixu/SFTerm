@@ -1,9 +1,21 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import type { IHost } from '@/shared/interface';
+import { useKeychainStore } from '@/stores/keychain';
+import { hostPasswordAccount, secretDelete, secretSet } from '@/lib/secrets';
+
+const keychain = useKeychainStore();
+const keyOptions = computed(() =>
+  keychain.entries.map((entry) => ({
+    label: entry.label || '未命名密钥',
+    value: entry.id,
+  })),
+);
 
 const props = defineProps<{ host: IHost | null }>();
-const emit = defineEmits<{ save: [host: IHost]; cancel: [] }>();
+const emit = defineEmits<{ save: [host: IHost]; cancel: []; 'open-keychain': [] }>();
+
+const hasPassword = ref(props.host?.hasPassword ?? Boolean(props.host?.password));
 
 const form = reactive({
   id: props.host?.id ?? `${Date.now()}`,
@@ -11,28 +23,49 @@ const form = reactive({
   address: props.host?.address ?? '',
   port: `${props.host?.port ?? 22}`,
   username: props.host?.username ?? '',
-  authKind: (props.host?.password ? 'password' : 'key') as 'key' | 'password',
+  authKind: (props.host?.keyPath ? 'key' : hasPassword.value ? 'password' : 'key') as
+    | 'key'
+    | 'password',
   keyPath: props.host?.keyPath ?? '',
-  password: props.host?.password ?? '',
+  keyId: props.host?.keyId ?? '',
+  password: '',
   group: props.host?.group ?? '',
   desc: props.host?.desc ?? '',
 });
 
 const error = ref('');
+// 有 Keychain 条目时默认用选择器；迁移前的旧主机可能只有路径，直接把路径展开。
+const showPath = ref(Boolean(props.host?.keyPath) && !props.host?.keyId);
 
-const save = () => {
+const save = async () => {
   if (!form.address.trim()) {
     error.value = '地址不能为空';
     return;
   }
-  if (form.authKind === 'key' && !form.keyPath.trim()) {
-    error.value = '请填写私钥路径';
+  if (form.authKind === 'key' && !form.keyId && !(showPath.value && form.keyPath.trim())) {
+    error.value = keyOptions.value.length ? '请选择密钥，或填写私钥文件路径' : '还没有密钥，请先去 Keychain 新建';
     return;
   }
-  if (form.authKind === 'password' && !form.password) {
+  if (form.authKind === 'password' && !form.password && !hasPassword.value) {
     error.value = '请填写密码';
     return;
   }
+
+  try {
+    if (form.authKind === 'password') {
+      if (form.password) {
+        await secretSet(hostPasswordAccount(form.id), form.password);
+        hasPassword.value = true;
+      }
+    } else if (hasPassword.value) {
+      await secretDelete(hostPasswordAccount(form.id));
+      hasPassword.value = false;
+    }
+  } catch (e) {
+    error.value = `保存到系统钥匙串失败：${e}`;
+    return;
+  }
+
   error.value = '';
   emit('save', {
     id: form.id,
@@ -40,8 +73,10 @@ const save = () => {
     address: form.address.trim(),
     port: Number(form.port) || 22,
     username: form.username.trim(),
-    keyPath: form.authKind === 'key' ? form.keyPath.trim() : undefined,
-    password: form.authKind === 'password' ? form.password : undefined,
+    keyId: form.authKind === 'key' && form.keyId ? form.keyId : undefined,
+    keyPath:
+      form.authKind === 'key' && !form.keyId && showPath.value ? form.keyPath.trim() : undefined,
+    hasPassword: form.authKind === 'password' ? hasPassword.value : false,
     group: form.group.trim() || undefined,
     desc: form.desc.trim() || undefined,
   });
@@ -80,15 +115,50 @@ const save = () => {
     </div>
 
     <div v-if="form.authKind === 'key'" class="section">
-      <label>私钥路径</label>
-      <InputText v-model="form.keyPath" placeholder="/Users/you/.ssh/id_ed25519" />
-      <small>暂用文件路径；Keychain 集成后会改为从密钥库选择。</small>
+      <label>密钥</label>
+
+      <template v-if="keyOptions.length">
+        <Select
+          v-model="form.keyId"
+          :options="keyOptions"
+          option-label="label"
+          option-value="value"
+          placeholder="从 Keychain 选择密钥"
+          class="key-select"
+        />
+      </template>
+
+      <div v-else class="no-keys">
+        <small>Keychain 里还没有密钥，新建一个后就能直接选。</small>
+        <Button
+          label="去 Keychain 新建"
+          size="small"
+          text
+          icon="pi pi-plus"
+          @click="emit('open-keychain')"
+        />
+      </div>
+
+      <button type="button" class="link" @click="showPath = !showPath">
+        {{ showPath ? '隐藏私钥文件路径' : '或使用私钥文件路径' }}
+      </button>
+      <InputText
+        v-if="showPath"
+        v-model="form.keyPath"
+        placeholder="/Users/you/.ssh/id_ed25519"
+      />
+
+      <small>私钥从系统钥匙串读取，只在连接时交给 Rust，不会落到磁盘。</small>
     </div>
 
     <div v-else class="section">
       <label>密码</label>
-      <InputText v-model="form.password" type="password" placeholder="登录密码" />
-      <small>暂存本地，后续迁移到系统钥匙串。</small>
+      <InputText
+        v-model="form.password"
+        type="password"
+        :placeholder="hasPassword ? '已保存在系统钥匙串，留空则不修改' : '登录密码'"
+      />
+      <small>密码只写入系统钥匙串，不会出现在 localStorage 里。</small>
     </div>
 
     <div class="row">
@@ -172,6 +242,43 @@ const save = () => {
   background: #fff;
   color: #111827;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.link {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.no-keys {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.key-select {
+  width: 100%;
+}
+
+/* PrimeVue Select 默认比 InputText 高，压到和表单其他输入框一致 */
+.key-select :deep(.p-select) {
+  width: 100%;
+  height: 36px;
+}
+
+.key-select :deep(.p-select-label) {
+  padding: 0 0.75rem;
+  font-size: 14px;
+  line-height: 34px;
+}
+
+.key-select :deep(.p-select-dropdown) {
+  width: 2rem;
 }
 
 .error {
