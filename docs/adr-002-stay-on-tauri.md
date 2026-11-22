@@ -78,3 +78,5 @@ ADR-001 决定把项目改写为 macOS 原生 Swift 应用（libghostty + Citade
 | 凭据存 Keychain | 仍存 localStorage | 迁移依赖 SQLite 存储层，排在交互稳定之后 |
 
 `crates/core` 被拆成独立 crate，可脱离 Tauri 用 `engine-check` CLI 直接验证连通性和传输，这一点是原计划外的收益。
+
+2026-11-22 追记：产品对外表述调整为「SSH 与 SFTP 客户端」——SFTP 是内置能力，不是产品类别；本文标题中的「以 SFTP 为核心」是决策当时的说法。技术结论（留在 Tauri）不变。
