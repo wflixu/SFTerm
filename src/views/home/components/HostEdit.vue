@@ -1,150 +1,189 @@
-<template>
-    <div class="edit-container">
-        <div class="edit-section">
-            <h3>Address</h3>
-            <div class="address-input">
-                <div class="address-icon">
-                    <i class="pi pi-server"></i>
-                </div>
-                <InputText v-model="host.address" placeholder="IP or Hostname" class="address-field" />
-            </div>
-        </div>
-
-        <div class="edit-section">
-            <h3>General</h3>
-            <div class="form-field">
-                <InputText v-model="host.name" placeholder="Label" class="full-width" />
-            </div>
-            <div class="form-field">
-                <InputText v-model="host.desc" placeholder="Description" class="full-width" />
-            </div>
-
-        </div>
-
-        <div class="form-actions">
-            <Button label="Cancel" class="p-button-text" />
-            <Button label="Save" severity="success" @click="save" />
-        </div>
-    </div>
-</template>
-
 <script setup lang="ts">
+import { reactive, ref } from 'vue';
 import type { IHost } from '@/shared/interface';
-import { reactive } from 'vue';
 
-const props = defineProps<{
-    host: IHost
-}>();
+const props = defineProps<{ host: IHost | null }>();
+const emit = defineEmits<{ save: [host: IHost]; cancel: [] }>();
 
-const emits = defineEmits<{
-    (event: 'submit', host: IHost): void;
-}>()
-
-const host = reactive<IHost>({
-    address: '',
-    name: '',
-    desc: '',
-    id: new Date().getTime().toString() as string
+const form = reactive({
+  id: props.host?.id ?? `${Date.now()}`,
+  name: props.host?.name ?? '',
+  address: props.host?.address ?? '',
+  port: `${props.host?.port ?? 22}`,
+  username: props.host?.username ?? '',
+  authKind: (props.host?.password ? 'password' : 'key') as 'key' | 'password',
+  keyPath: props.host?.keyPath ?? '',
+  password: props.host?.password ?? '',
+  group: props.host?.group ?? '',
+  desc: props.host?.desc ?? '',
 });
 
-if(props.host) {
-    host.address = props.host.address;
-    host.name = props.host.name;
-    host.desc = props.host.desc;
-    host.id = props.host.id;
-}
+const error = ref('');
 
 const save = () => {
-    emits('submit', host);
-}
-
+  if (!form.address.trim()) {
+    error.value = '地址不能为空';
+    return;
+  }
+  if (form.authKind === 'key' && !form.keyPath.trim()) {
+    error.value = '请填写私钥路径';
+    return;
+  }
+  if (form.authKind === 'password' && !form.password) {
+    error.value = '请填写密码';
+    return;
+  }
+  error.value = '';
+  emit('save', {
+    id: form.id,
+    name: form.name.trim() || form.address.trim(),
+    address: form.address.trim(),
+    port: Number(form.port) || 22,
+    username: form.username.trim(),
+    keyPath: form.authKind === 'key' ? form.keyPath.trim() : undefined,
+    password: form.authKind === 'password' ? form.password : undefined,
+    group: form.group.trim() || undefined,
+    desc: form.desc.trim() || undefined,
+  });
+};
 </script>
 
+<template>
+  <div class="form">
+    <div class="section">
+      <label>名称</label>
+      <InputText v-model="form.name" placeholder="例如 web-1" />
+    </div>
+
+    <div class="row">
+      <div class="section grow">
+        <label>地址</label>
+        <InputText v-model="form.address" placeholder="IP 或域名" />
+      </div>
+      <div class="section port">
+        <label>端口</label>
+        <InputText v-model="form.port" placeholder="22" />
+      </div>
+    </div>
+
+    <div class="section">
+      <label>用户名</label>
+      <InputText v-model="form.username" placeholder="ubuntu" />
+    </div>
+
+    <div class="section">
+      <label>认证方式</label>
+      <div class="segmented">
+        <button :class="{ active: form.authKind === 'key' }" @click="form.authKind = 'key'">密钥</button>
+        <button :class="{ active: form.authKind === 'password' }" @click="form.authKind = 'password'">密码</button>
+      </div>
+    </div>
+
+    <div v-if="form.authKind === 'key'" class="section">
+      <label>私钥路径</label>
+      <InputText v-model="form.keyPath" placeholder="/Users/you/.ssh/id_ed25519" />
+      <small>暂用文件路径；Keychain 集成后会改为从密钥库选择。</small>
+    </div>
+
+    <div v-else class="section">
+      <label>密码</label>
+      <InputText v-model="form.password" type="password" placeholder="登录密码" />
+      <small>暂存本地，后续迁移到系统钥匙串。</small>
+    </div>
+
+    <div class="row">
+      <div class="section grow">
+        <label>分组</label>
+        <InputText v-model="form.group" placeholder="可选" />
+      </div>
+    </div>
+
+    <div class="section">
+      <label>备注</label>
+      <InputText v-model="form.desc" placeholder="可选" />
+    </div>
+
+    <p v-if="error" class="error">{{ error }}</p>
+
+    <div class="actions">
+      <Button label="取消" severity="secondary" text @click="emit('cancel')" />
+      <Button label="保存" @click="save" />
+    </div>
+  </div>
+</template>
+
 <style scoped>
-.edit-container {
-    padding: 20px;
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  overflow-y: auto;
 }
 
-.edit-section {
-    margin-bottom: 20px;
-    background-color: #f8f9fa;
-    border-radius: 8px;
-    padding: 16px;
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.edit-section h3 {
-    margin-top: 0;
-    margin-bottom: 16px;
-    font-size: 16px;
-    font-weight: 600;
-    color: #333;
+.section label {
+  font-size: 12px;
+  color: #6b7280;
 }
 
-.address-input {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+.section small {
+  font-size: 11px;
+  color: #9ca3af;
 }
 
-.address-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    border-radius: 8px;
-    background-color: #2c3e50;
+.row {
+  display: flex;
+  gap: 10px;
 }
 
-.address-icon i {
-    font-size: 20px;
-    color: white;
+.grow {
+  flex: 1;
 }
 
-.address-field {
-    flex: 1;
+.port {
+  width: 90px;
 }
 
-.form-field {
-    margin-bottom: 12px;
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 7px;
+  background: #eef0f3;
+  width: fit-content;
 }
 
-.form-field:last-child {
-    margin-bottom: 0;
+.segmented button {
+  padding: 5px 14px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #4b5563;
+  font-size: 12px;
+  cursor: pointer;
 }
 
-.input-with-icon {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    border: 1px solid #ced4da;
-    border-radius: 4px;
-    background-color: white;
+.segmented button.active {
+  background: #fff;
+  color: #111827;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
-.input-with-icon i {
-    color: #6c757d;
-    font-size: 16px;
+.error {
+  margin: 0;
+  font-size: 12px;
+  color: #dc2626;
 }
 
-.space-between {
-    justify-content: space-between;
-}
-
-.default-label {
-    color: #6c757d;
-    font-size: 14px;
-}
-
-.full-width {
-    width: 100%;
-}
-
-.form-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 12px;
-    margin-top: 20px;
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
 }
 </style>

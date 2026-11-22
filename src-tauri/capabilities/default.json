@@ -6,10 +6,6 @@
     "main"
   ],
   "permissions": [
-    "core:default",
-    {
-      "identifier": "fs:default",
-      "allow": [{ "path": "$HOME/dev/ssh/**" }]
-    }
+    "core:default"
   ]
 }
