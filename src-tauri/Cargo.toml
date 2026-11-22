@@ -27,3 +27,4 @@ ssh2 = { version = "0.9.5", features = ["vendored-openssl"] }
 sfterm-core = { path = "../crates/core" }
 base64 = "0.22"
 keyring = { version = "3", features = ["apple-native"] }
+rusqlite = { version = "0.32", features = ["bundled"] }

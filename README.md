@@ -38,7 +38,7 @@
 
 > [!NOTE]
 > **早期版本，功能不齐。** 每个 tag 由 CI 构建签名、公证过的 Apple Silicon 安装包，见 [Releases](https://github.com/wflixu/SFTerm/releases/latest)；还没有自动更新、i18n 和 onboarding。
-> 密码与私钥现在存进 macOS 系统钥匙串；主机地址、公钥等元数据仍在 WebView 的 localStorage 里。
+> 密码与私钥存进 macOS 系统钥匙串；主机、密钥元数据和命令历史在本机 SQLite；localStorage 仍留一份非敏感的元数据副本用于迁移和回退。
 
 ## 下载
 
@@ -86,7 +86,8 @@
 | 远端操作：新建文件夹、重命名、删除（目录递归） | 可用 |
 | 终端：多标签、窗口自适应、切换标签不断线 | 可用 |
 | 密钥条目：Label / 私钥 / 公钥、从文件导入 | 可用（私钥存钥匙串，公钥在 localStorage） |
-| Snippets / Logs | 空状态占位 |
+| Snippets：保存命令片段，终端输入 ≥2 字符时联想补全 | 可用 |
+| 最近命令：终端执行过的命令落 SQLite，可一键存为片段 | 可用（只记命令行，不含输出 / 退出码） |
 
 ## 还不能做什么
 
@@ -96,9 +97,10 @@
 - **冲突预检与「对全部应用」**：逐个弹窗，没有批量策略。
 - **远端 chmod、多选、排序、隐藏文件开关、快速过滤**。
 - **主机指纹确认（TOFU）**：只显示指纹，不比对、不阻断。
-- **SQLite**：主机、密钥标签等元数据仍在 localStorage；密码与私钥已进系统钥匙串。
 - **断线自动重连**：终端有「重连」按钮，SFTP 断了要手动重连。
-- **设置页、Snippets、日志、预览、`sftp://`、跳板机**。
+- **补全边界是回车启发式**：vim / tmux 里不联想（跳过 alternate buffer），多行命令、光标移动后补全可能失效。
+- **命令历史是明文 SQLite**：通过 `sudo` 等密码提示输入的内容也会被当成命令记下来，敏感机器上慎用。
+- **设置页、文件预览、`sftp://`、跳板机**。
 
 完整的规格与逐条状态见 [需求基线](docs/requirements-v0.md) 的 §7。
 
@@ -110,7 +112,7 @@
 | 界面 | Vue 3 + TypeScript + Vite 6 + PrimeVue 4（Aura）+ Pinia 3 |
 | 终端 | xterm.js 5 + addon-fit，每个标签一条独立 SSH 会话 |
 | SSH / SFTP | Rust `ssh2` 0.9（libssh2），阻塞 API 跑在专用线程 |
-| 存储 | 过渡期 localStorage，计划换 SQLite + 系统 Keychain |
+| 存储 | SQLite（主机 / 密钥元数据 / 命令历史）+ 系统钥匙串（密码 / 私钥）；localStorage 仅用于迁移 |
 
 为什么留在 Tauri、放弃 Swift 原生方案，见 [ADR-002](docs/adr-002-stay-on-tauri.md)（[ADR-001](docs/adr-001-swift-native-macos.md) 是存档）。
 
@@ -144,7 +146,8 @@ cargo run -p sfterm-core --bin engine-check -- \
 |---|---|
 | `pnpm tauri dev` 起不来，提示端口占用 | Vite 设了 `strictPort`。先 `lsof -nP -iTCP:5173 -sTCP:LISTEN`，杀掉旧进程再启动 |
 | 首次启动卡很久 | 第一次要编译整套 Rust 依赖，几分钟属正常；之后是增量编译 |
-| 想清空主机 / 密钥 | 目前没有重置入口，只能在 Home 里逐个删除；数据存在 WebView 的 localStorage（bundle id `cn.wflixu.sfterm`） |
+| 数据存在哪 | `~/Library/Application Support/cn.wflixu.sfterm/sfterm.db`；密码和私钥在系统钥匙串（service `cn.wflixu.sfterm`） |
+| 想清空主机 / 密钥 | 在 Home 里逐个删除；最近命令目前没有一键清空 |
 | 界面白屏或操作没反应 | 看 `pnpm tauri dev` 的终端输出：Rust 侧错误与 `tauri-plugin-log` 都打在 stdout / stderr |
 | 改了 Vue 页面不生效 | 确认 dev server 还活着、端口仍是 5173；改 Rust 或 `src-tauri` 配置需要重启 |
 | 反复弹「钥匙串想访问…」 | 开发版每次重编译签名会变，钥匙串 ACL 要重新授权；点「始终允许」即可，正式签名版只会在首次安装后确认一次 |
@@ -187,7 +190,7 @@ docs/                   需求基线、架构说明、ADR
 | 阶段 | 内容 |
 |---|---|
 | 0.1.x | 目录递归传输、拖拽、传输取消 / 暂停、主机指纹确认 |
-| **0.2.0** | **密码存储**：凭据进系统 Keychain，主机与设置进 SQLite，迁掉明文 localStorage<br>**终端命令历史**：命令与输出跨重启保留、可搜索 |
+| **0.2.0** | **密码存储**：凭据进系统 Keychain，主机与设置进 SQLite，迁掉明文 localStorage<br>**Snippets**：保存命令片段，终端输入时联想；最近命令可一键存为片段 |
 | 0.3+ | 设置页（下载目录 / 并发 / 字号）、断线自动重连、Snippets 落地、文件预览、`sftp://` |
 
 ## 文档

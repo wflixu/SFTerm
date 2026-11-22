@@ -67,6 +67,8 @@ manager.list_dir(id, path)                  // UI 侧（spawn_blocking）
 |---|---|---|
 | `ssh_connect` | 建连 + 认证，启动会话线程（SFTP 在会话线程里打开） | 返回 `ConnectInfo`（banner、主机密钥类型、SHA256 指纹） |
 | `secret_set` / `secret_get` / `secret_delete` | 系统钥匙串读写删 | 服务名 `cn.wflixu.sfterm`，account 由前端拼（`host:<id>:password`、`key:<id>:private`） |
+| `db_get_state` / `db_set_state` | SQLite state 表读写 JSON | 目前存 `hosts`、`keys`、`snippets` 三份元数据 |
+| `history_add` / `history_list` / `history_clear` | 终端命令历史 | 支持按命令或主机名搜索 |
 | `ssh_disconnect` / `ssh_sessions` | 断开 / 列出会话 | 调试用 |
 | `sftp_home` | 远端 `realpath(".")` | 登录后的默认目录；失败时前端回退 `/home` |
 | `sftp_list_dir` | 列远端目录 | 返回 `perm`（数字 mode）、大小、mtime、符号链接标记；UI 暂未显示权限串 |
@@ -91,6 +93,8 @@ manager.list_dir(id, path)                  // UI 侧（spawn_blocking）
 | `sftp` | SFTP 页当前绑定的**主机对象**（不是 id） | 内存，重启回到未绑定 |
 | `tabs` | 终端标签：`terminalId = term-${address}:${port ?? 22}`，按 IP:端口去重 | 内存 |
 | `terminals` | 终端会话缓存：`shellId`、状态、输出块、写入游标 | 内存，切换标签不销毁 |
+| `snippets` | 命令片段：CRUD、SQLite | SQLite |
+| `history` | 最近命令：写入、读取，供 Snippets 页和终端联想使用 | SQLite |
 | `transfers` | 传输任务列表与进度 | 内存 |
 
 ### 4.1 标签与连接
@@ -131,7 +135,7 @@ manager.list_dir(id, path)                  // UI 侧（spawn_blocking）
 | 无背压 | 输出块直接堆在 store（512 KB 上限） | 超限会丢早期输出 |
 | 死亡会话不感知 | shell 进程退出后前端仍显示「已连接」 | 需要 exit 事件与状态回收 |
 | 传输不可取消 | 没有取消通道 | 只能等传完或退出标签 |
-| 存储 | 密码、私钥已在系统钥匙串；主机与公钥等元数据仍在 localStorage | SQLite 持久层还没做，见 [roadmap](roadmap.md) |
-| 终端历史 | 输出只在内存（512 KB），重启即丢；没有命令边界 | 0.2.0 做命令历史，边界方案见 [roadmap](roadmap.md) |
+| 存储 | 密码、私钥在系统钥匙串；主机 / 密钥元数据与命令历史在 SQLite（`sfterm.db`） | localStorage 仍保留一份元数据副本作回退 |
+| 终端补全 | 片段联想基于回车启发式，alternate buffer（vim/tmux）直接跳过 | 后续用 OSC 133 提升准确性 |
 | 主机密钥 | 只显示指纹，无 TOFU 确认 | 中间人无法被拦截（个人自用可接受） |
 | 目录传输 | 只支持单文件 | 递归需要引擎侧遍历 + 队列 |

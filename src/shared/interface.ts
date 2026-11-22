@@ -24,6 +24,14 @@ export interface FileEntry {
     mtime?: number | null;
 }
 
+export interface ISnippet {
+    id: string;
+    label: string;
+    command: string;
+    group?: string;
+    updatedAt?: number;
+}
+
 export interface IKeyEntry {
     id: string;
     label: string;

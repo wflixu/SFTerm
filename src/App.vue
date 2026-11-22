@@ -5,6 +5,9 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useTabsStore } from '@/stores/tabs';
 import { useTransfersStore } from '@/stores/transfers';
 import { useTerminalsStore } from '@/stores/terminals';
+import { useSystemStore } from '@/stores/system';
+import { useKeychainStore } from '@/stores/keychain';
+import { useSnippetsStore } from '@/stores/snippets';
 import { migrateSecrets } from '@/lib/migrateSecrets';
 
 const route = useRoute();
@@ -12,6 +15,9 @@ const router = useRouter();
 const tabs = useTabsStore();
 const transfers = useTransfersStore();
 const terminals = useTerminalsStore();
+const system = useSystemStore();
+const keychain = useKeychainStore();
+const snippets = useSnippetsStore();
 const renderError = ref('');
 
 onErrorCaptured((error) => {
@@ -23,8 +29,16 @@ onErrorCaptured((error) => {
 let unlistenTransfer: UnlistenFn | null = null;
 let unlistenShell: UnlistenFn | null = null;
 onMounted(async () => {
-  // 先把旧 localStorage 里的明文凭据搬进系统钥匙串，再开始监听事件。
-  await migrateSecrets().catch((error) => console.error('[secrets] 迁移失败', error));
+  // 先把旧 localStorage 里的明文凭据搬进系统钥匙串，再导入 SQLite。
+  const migrated = await migrateSecrets().catch((error) => {
+    console.error('[secrets] 迁移失败', error);
+    return false;
+  });
+  if (migrated) {
+    await Promise.all([system.hydrate(), keychain.hydrate(), snippets.hydrate()]).catch((error) =>
+      console.error('[db] 读取本地数据失败', error),
+    );
+  }
   unlistenTransfer = await listen<{ id: string; done: number; total: number }>('transfer-progress', (event) => {
     transfers.update(event.payload.id, event.payload.done, event.payload.total);
   });

@@ -1,3 +1,4 @@
+use crate::db::{Db, HistoryEntry};
 use base64::Engine;
 use sfterm_core::{
     open_shell, ConnectInfo, ConnectParams, Manager, RemoteEntry, ShellHandle, TransferProgress,
@@ -316,4 +317,44 @@ pub fn secret_delete(account: String) -> Result<(), String> {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(format!("删除钥匙串条目失败：{e}")),
     }
+}
+
+// ---------------------------------------------------------------------------
+// SQLite：主机/密钥元数据用 JSON 存在 state 表，命令历史单独一张表。
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn db_get_state(db: State<'_, Db>, key: String) -> Result<Option<String>, String> {
+    db.get_state(&key)
+}
+
+#[tauri::command]
+pub fn db_set_state(db: State<'_, Db>, key: String, value: String) -> Result<(), String> {
+    db.set_state(&key, &value)
+}
+
+#[tauri::command]
+pub fn history_add(
+    db: State<'_, Db>,
+    host_id: String,
+    host_label: String,
+    command: String,
+    executed_at: i64,
+) -> Result<i64, String> {
+    db.add_history(&host_id, &host_label, &command, executed_at)
+}
+
+#[tauri::command]
+pub fn history_list(
+    db: State<'_, Db>,
+    query: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<HistoryEntry>, String> {
+    let query = query.map(|q| q.trim().to_string()).filter(|q| !q.is_empty());
+    db.list_history(query.as_deref(), limit.unwrap_or(200))
+}
+
+#[tauri::command]
+pub fn history_clear(db: State<'_, Db>) -> Result<(), String> {
+    db.clear_history()
 }

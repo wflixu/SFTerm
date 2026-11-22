@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { IHost } from '@/shared/interface'
+import { loadState, saveState } from '@/lib/db'
 
 /**
  * 老版本存下来的主机可能没有 id（或者 id 重复）。
@@ -36,9 +37,34 @@ export const useSystemStore = defineStore('system', () => {
   const hosts = ref<IHost[]>(normalized)
   const currentHost = ref<IHost | null>(null)
 
+  // 迁移旧凭据时先暂停写库，避免把还带明文密码的中间状态写进 SQLite。
+  let persistDb = true
+  const setPersistDb = (value: boolean) => {
+    persistDb = value
+  }
+
   const storeHost = () => {
     window.localStorage.setItem('hosts', JSON.stringify(hosts.value))
+    if (persistDb) {
+      saveState('hosts', hosts.value).catch((error) =>
+        console.error('[system] 写入 SQLite 失败', error),
+      )
+    }
   }
+
+  /** 首次启动时把 localStorage 里的主机导入 SQLite；之后以数据库为准。 */
+  const hydrate = async () => {
+    const stored = await loadState<IHost[]>('hosts')
+    if (stored) {
+      const normalized = normalizeHosts(stored)
+      hosts.value = normalized.hosts
+      if (normalized.changed) storeHost()
+      return
+    }
+    if (hosts.value.length) await saveState('hosts', hosts.value)
+  }
+
+  const persist = () => storeHost()
 
   if (changed) storeHost()
 
@@ -85,6 +111,9 @@ export const useSystemStore = defineStore('system', () => {
     addHost,
     removeHost,
     updateHost,
-    getHost
+    getHost,
+    hydrate,
+    persist,
+    setPersistDb
   }
 })
