@@ -3109,6 +3109,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sft-probe"
+version = "0.1.0"
+dependencies = [
+ "ssh2",
+]
+
+[[package]]
 name = "sfterm-core"
 version = "0.1.0"
 dependencies = [
